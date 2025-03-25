@@ -1,12 +1,16 @@
 # Python bytecode
 __pycache__/
+**/__pycache__/
 *.py[cod]
 *$py.class
+**/*.py[cod]
+**/*$py.class
 
 # Distribution / packaging
 dist/
 build/
 *.egg-info/
+**/*.egg-info/
 
 # Virtual environments
 venv/
@@ -15,6 +19,7 @@ ENV/
 
 # Jupyter Notebook
 .ipynb_checkpoints
+**/.ipynb_checkpoints
 
 # IDE specific files
 .idea/
@@ -24,12 +29,17 @@ ENV/
 
 # Logs
 *.log
+**/*.log
 
 # Output directories
 output/
 */output/
+**/output/
 refactored_output/
+**/refactored_output/
 
 # System files
 .DS_Store
-Thumbs.db 
+Thumbs.db
+**/.DS_Store
+**/Thumbs.db 
