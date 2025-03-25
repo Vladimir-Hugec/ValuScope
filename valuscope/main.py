@@ -14,6 +14,7 @@ import matplotlib.pyplot as plt
 from valuscope.core.data_fetcher import YahooFinanceFetcher
 from valuscope.core.analysis import FinancialAnalyzer
 from valuscope.core.valuation import DCFValuationModel
+from valuscope.templates import get_report_template
 
 # Get logger for this module
 logger = logging.getLogger(__name__)
@@ -160,12 +161,28 @@ def run_dcf_valuation(
 
         # Perform sensitivity analysis
         logger.info("Performing sensitivity analysis...")
-        # Use relative adjustments to the dynamic discount rate (±20%) rather than fixed values
+
         sensitivity = model.perform_sensitivity_analysis(
             "discount_rate",
-            [0.8, 0.9, 1.0, 1.1, 1.2],  # Vary base rate by ±20%
+            [
+                0.7,
+                0.8,
+                0.9,
+                1.0,
+                1.1,
+                1.2,
+                1.3,
+            ],  # Vary base rate by ±30% in 10% increments
             "terminal_growth",
-            [0.02, 0.025, 0.03, 0.035, 0.04],
+            [
+                0.02,
+                0.025,
+                0.03,
+                0.035,
+                0.04,
+                0.045,
+                0.05,
+            ],  # Terminal growth from 2% to 5%
         )
 
         # Save sensitivity analysis to CSV
@@ -180,18 +197,71 @@ def run_dcf_valuation(
             # Make sure all values in the sensitivity DataFrame are numeric
             sensitivity_numeric = sensitivity.apply(pd.to_numeric, errors="coerce")
 
+            # Create a copy to avoid modifying the original DataFrame
+            sensitivity_display = sensitivity_numeric.copy()
+
+            # Convert index and columns to formatted percentages for display if they're discount rates or growth rates
+            if all(
+                isinstance(idx, (int, float))
+                or (isinstance(idx, str) and idx.replace(".", "", 1).isdigit())
+                for idx in sensitivity_numeric.index
+            ):
+                # Format the index as percentages
+                sensitivity_display.index = [
+                    f"{float(idx):.2%}" for idx in sensitivity_numeric.index
+                ]
+
+            if all(
+                isinstance(col, (int, float))
+                or (isinstance(col, str) and col.replace(".", "", 1).isdigit())
+                for col in sensitivity_numeric.columns
+            ):
+                # Format the columns as percentages
+                sensitivity_display.columns = [
+                    f"{float(col):.2%}" for col in sensitivity_numeric.columns
+                ]
+
             # Plot only if we have valid numeric data
             if (
                 not sensitivity_numeric.empty
                 and not sensitivity_numeric.isnull().all().all()
             ):
                 plt.figure(figsize=(10, 8))
+
+                # Determine if values are stock prices or percentages
+                is_stock_price = (
+                    np.mean(sensitivity_numeric.values) > 1
+                )  # likely stock prices, no penny stock users allowed
+
+                # Format annotations
+                if is_stock_price:
+                    # Handle dollar formatting for the annotations
+                    annot = np.vectorize(lambda x: f"${x:.2f}")(
+                        sensitivity_numeric.values
+                    )
+                    fmt = ""  # Empty format as we've pre-formatted the annotations
+                else:
+                    # Handle percentage formatting for the annotations
+                    annot = np.vectorize(lambda x: f"{x:.2%}")(
+                        sensitivity_numeric.values
+                    )
+                    fmt = ""  # Empty format as we've pre-formatted the annotations
+
+                # Create the heatmap with the numeric data but display formatting
                 ax = sns.heatmap(
-                    sensitivity_numeric, annot=True, cmap="YlGnBu", fmt=".2f"
+                    sensitivity_numeric, annot=annot, cmap="YlGnBu", fmt=fmt
                 )
+
+                # Set x and y tick labels using the percentage-formatted display DataFrame
+                ax.set_xticklabels(sensitivity_display.columns)
+                ax.set_yticklabels(sensitivity_display.index)
+
                 plt.title(
                     f"{ticker} - Sensitivity Analysis: Discount Rate vs Terminal Growth"
                 )
+
+                plt.xlabel("Discount Rate (WACC)")
+                plt.ylabel("Terminal Growth Rate")
                 plt.tight_layout()
 
                 sensitivity_plot = os.path.join(
@@ -332,91 +402,51 @@ def generate_report(ticker, data, analysis_data, valuation_results, output_dir):
             else "<p>No financial ratio data available</p>"
         )
 
-        # Create HTML report with relative paths to visualization files
-        html_content = f"""
-        <!DOCTYPE html>
-        <html>
-        <head>
-            <title>{ticker} Financial Analysis Report</title>
-            <style>
-                body {{ font-family: Arial, sans-serif; margin: 20px; }}
-                .header {{ background-color: #4CAF50; color: white; padding: 20px; text-align: center; }}
-                .section {{ margin-top: 20px; margin-bottom: 20px; padding: 15px; border: 1px solid #ddd; }}
-                .metrics {{ display: flex; flex-wrap: wrap; }}
-                .metric-box {{ background-color: #f9f9f9; margin: 10px; padding: 15px; width: 200px; border-radius: 5px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }}
-                table {{ border-collapse: collapse; width: 100%; }}
-                th, td {{ padding: 8px; text-align: left; border-bottom: 1px solid #ddd; }}
-                th {{ background-color: #f2f2f2; }}
-                .image-container {{ margin: 20px 0; }}
-                .recommendation {{ font-size: 24px; font-weight: bold; text-align: center; margin: 20px; }}
-            </style>
-        </head>
-        <body>
-            <div class="header">
-                <h1>{company_info.get('longName', ticker)} Financial Analysis Report</h1>
-                <p>Generated on {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</p>
-            </div>
-            
-            <div class="section">
-                <h2>Company Overview</h2>
-                <p><strong>Ticker:</strong> {ticker}</p>
-                <p><strong>Industry:</strong> {company_info.get('industry', 'N/A')}</p>
-                <p><strong>Sector:</strong> {company_info.get('sector', 'N/A')}</p>
-                <p><strong>Market Cap:</strong> ${company_info.get('marketCap', 'N/A'):,}</p>
-                <p><strong>Current Price:</strong> {format_value(current_price)}</p>
-            </div>
-            
-            <div class="section">
-                <h2>Key Financial Metrics</h2>
-                <div class="metrics">
-                    <div class="metric-box">
-                        <h3>Revenue</h3>
-                        <p>{format_value(revenue)}</p>
-                    </div>
-                    <div class="metric-box">
-                        <h3>Net Income</h3>
-                        <p>{format_value(net_income)}</p>
-                    </div>
-                    <div class="metric-box">
-                        <h3>Target Price</h3>
-                        <p>{format_value(target_price)}</p>
-                    </div>
-                    <div class="metric-box">
-                        <h3>Upside Potential</h3>
-                        <p>{format_percentage(upside)}</p>
-                    </div>
-                </div>
-            </div>
-            
-            <div class="section">
-                <h2>Financial Ratios</h2>
-                {ratios_html}
-            </div>
-            
-            <div class="section">
-                <h2>Financial Visualizations</h2>
-                {'<div class="image-container"><h3>Financial Trends</h3><img src="visualizations/' + ticker + '_financial_trends.png" alt="Financial Trends" style="max-width:100%;"></div>' if has_financial_trends else '<p>Financial trends visualization not available</p>'}
-                {'<div class="image-container"><h3>Stock Performance Comparison</h3><img src="visualizations/' + ticker + '_stock_performance.png" alt="Stock Performance" style="max-width:100%;"></div>' if has_stock_performance else '<p>Stock performance comparison visualization not available</p>'}
-                {'<div class="image-container"><h3>Sensitivity Analysis</h3><img src="visualizations/' + ticker + '_sensitivity_heatmap.png" alt="Sensitivity Analysis" style="max-width:100%;"></div>' if has_sensitivity_heatmap else '<p>Sensitivity analysis visualization not available</p>'}
-            </div>
-            
-            <div class="section">
-                <h2>Valuation Summary</h2>
-                <div class="recommendation">
-                    Investment Recommendation: {recommendation}
-                </div>
-                <p><strong>Target Price:</strong> {format_value(target_price)}</p>
-                <p><strong>Current Price:</strong> {format_value(current_price)}</p>
-                <p><strong>Upside Potential:</strong> {format_percentage(upside)}</p>
-            </div>
-            
-            <div class="section">
-                <h2>Disclaimer</h2>
-                <p>This report is for educational and research purposes only. It should not be considered as financial advice. Always do your own research before making investment decisions.</p>
-            </div>
-        </body>
-        </html>
-        """
+        # Prepare visualization HTML
+        financial_trends_html = (
+            '<div class="image-container"><h3>Financial Trends</h3><img src="visualizations/'
+            + ticker
+            + '_financial_trends.png" alt="Financial Trends" style="max-width:100%;"></div>'
+            if has_financial_trends
+            else "<p>Financial trends visualization not available</p>"
+        )
+        stock_performance_html = (
+            '<div class="image-container"><h3>Stock Performance Comparison</h3><img src="visualizations/'
+            + ticker
+            + '_stock_performance.png" alt="Stock Performance" style="max-width:100%;"></div>'
+            if has_stock_performance
+            else "<p>Stock performance comparison visualization not available</p>"
+        )
+        sensitivity_heatmap_html = (
+            '<div class="image-container"><h3>Sensitivity Analysis</h3><img src="visualizations/'
+            + ticker
+            + '_sensitivity_heatmap.png" alt="Sensitivity Analysis" style="max-width:100%;"></div>'
+            if has_sensitivity_heatmap
+            else "<p>Sensitivity analysis visualization not available</p>"
+        )
+
+        # Get the HTML template
+        template = get_report_template()
+
+        # Format the template with data
+        html_content = template.format(
+            ticker=ticker,
+            company_name=company_info.get("longName", ticker),
+            generation_date=datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            industry=company_info.get("industry", "N/A"),
+            sector=company_info.get("sector", "N/A"),
+            market_cap=company_info.get("marketCap", "N/A"),
+            current_price=format_value(current_price),
+            revenue=format_value(revenue),
+            net_income=format_value(net_income),
+            target_price=format_value(target_price),
+            upside=format_percentage(upside),
+            ratios_html=ratios_html,
+            financial_trends_html=financial_trends_html,
+            stock_performance_html=stock_performance_html,
+            sensitivity_heatmap_html=sensitivity_heatmap_html,
+            recommendation=recommendation,
+        )
 
         # Write to file
         with open(report_file, "w") as f:
@@ -548,5 +578,4 @@ if __name__ == "__main__":
         ],
     )
 
-    # Run the main function
     sys.exit(main())
