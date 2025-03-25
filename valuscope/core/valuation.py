@@ -507,13 +507,13 @@ class DCFValuationModel:
             logger.error(f"Error calculating terminal value: {str(e)}")
             return np.nan
 
-    def perform_dcf_valuation(self, use_current_discount_rate=False):
+    def perform_dcf_valuation(self, use_current_discount_rate=True):
         """
         Perform Discounted Cash Flow valuation.
 
         Args:
             use_current_discount_rate (bool): Whether to calculate discount rate
-                                            based on current market data
+                                            based on current market data (default: True)
 
         Returns:
             dict: Dictionary containing valuation results
@@ -524,7 +524,7 @@ class DCFValuationModel:
             return None
 
         try:
-            # If requested, calculate the discount rate based on current market data
+            # Calculate the discount rate based on current market data by default
             if use_current_discount_rate:
                 self.calculate_current_discount_rate()
                 logger.info(
@@ -686,6 +686,11 @@ class DCFValuationModel:
             print(
                 f"Discount Rate (WACC): {format_percentage(self.valuation_parameters['discount_rate'])}"
             )
+            if results.get("risk_free_rate") is not None:
+                print(f"  - Dynamically calculated using current market data")
+                print(
+                    f"  - Risk-Free Rate: {format_percentage(results.get('risk_free_rate', np.nan))}"
+                )
             print(
                 f"Projection Years: {self.valuation_parameters['projection_years']} years"
             )
@@ -751,8 +756,11 @@ class DCFValuationModel:
         Args:
             variable1 (str): First variable to analyze (e.g., 'discount_rate', 'revenue_growth')
             values1 (list): List of values for the first variable
+                            For discount_rate: if using dynamic calculation, these will be treated as multipliers
+                            to the base rate (e.g., [0.8, 0.9, 1.0, 1.1, 1.2] to vary by ±20%)
             variable2 (str, optional): Second variable to analyze
             values2 (list, optional): List of values for the second variable
+                            For discount_rate: same as values1 if using dynamic calculation
 
         Returns:
             pd.DataFrame: Sensitivity analysis results
@@ -761,6 +769,16 @@ class DCFValuationModel:
             # Store original values
             original_growth = self.growth_assumptions.copy()
             original_valuation = self.valuation_parameters.copy()
+
+            # If we need to analyze discount_rate and we're using dynamic calculation,
+            # first calculate the base discount rate
+            base_discount_rate = None
+            if variable1 == "discount_rate" or variable2 == "discount_rate":
+                # Calculate the dynamic discount rate to use as base
+                base_discount_rate = self.calculate_current_discount_rate()
+                logger.info(
+                    f"Using dynamic discount rate as base for sensitivity analysis: {base_discount_rate:.2%}"
+                )
 
             # Check if we're doing a one-dimensional or two-dimensional analysis
             if variable2 is None or values2 is None:
@@ -771,17 +789,37 @@ class DCFValuationModel:
                     if variable1 in self.growth_assumptions:
                         self.growth_assumptions[variable1] = val1
                     elif variable1 in self.valuation_parameters:
-                        self.valuation_parameters[variable1] = val1
+                        if (
+                            variable1 == "discount_rate"
+                            and base_discount_rate is not None
+                        ):
+                            # For discount_rate, if we have a base rate, use the value as a multiplier
+                            actual_val = base_discount_rate * val1
+                            self.valuation_parameters[variable1] = actual_val
+                            logger.debug(
+                                f"Using adjusted discount rate for sensitivity: {actual_val:.2%} (base * {val1})"
+                            )
+                        else:
+                            self.valuation_parameters[variable1] = val1
                     else:
                         logger.warning(f"Variable {variable1} not recognized.")
                         continue
 
-                    # Perform valuation
-                    valuation = self.perform_dcf_valuation()
+                    # Perform valuation with fixed parameters (not re-calculating discount rate)
+                    valuation = self.perform_dcf_valuation(
+                        use_current_discount_rate=False
+                    )
                     if valuation:
+                        # For the label, use the actual value if it's a discount rate with base rate
+                        label_val = (
+                            self.valuation_parameters[variable1]
+                            if variable1 == "discount_rate"
+                            and base_discount_rate is not None
+                            else val1
+                        )
                         results.append(
                             {
-                                "variable_value": val1,
+                                "variable_value": label_val,
                                 "per_share_value": valuation.get(
                                     "per_share_value", np.nan
                                 ),
@@ -798,29 +836,71 @@ class DCFValuationModel:
             else:
                 # Two-dimensional analysis
                 results = {}
-                for val1 in values1:
-                    results[val1] = {}
-                    for val2 in values2:
-                        # Set the variables
-                        if variable1 in self.growth_assumptions:
-                            self.growth_assumptions[variable1] = val1
-                        elif variable1 in self.valuation_parameters:
-                            self.valuation_parameters[variable1] = val1
+                val1_labels = {}
 
+                for val1 in values1:
+                    if variable1 == "discount_rate" and base_discount_rate is not None:
+                        actual_val1 = base_discount_rate * val1
+                        val1_label = (
+                            f"{actual_val1:.4f}"  # Store for DataFrame indexing
+                        )
+                        val1_labels[val1] = val1_label
+                    else:
+                        actual_val1 = val1
+                        val1_label = str(val1)
+                        val1_labels[val1] = val1_label
+
+                    results[val1_label] = {}
+
+                    for val2 in values2:
+                        # Set variable 1
+                        if variable1 in self.growth_assumptions:
+                            self.growth_assumptions[variable1] = actual_val1
+                        elif variable1 in self.valuation_parameters:
+                            self.valuation_parameters[variable1] = actual_val1
+
+                        # Set variable 2
                         if variable2 in self.growth_assumptions:
                             self.growth_assumptions[variable2] = val2
                         elif variable2 in self.valuation_parameters:
-                            self.valuation_parameters[variable2] = val2
+                            if (
+                                variable2 == "discount_rate"
+                                and base_discount_rate is not None
+                            ):
+                                # For discount_rate, if we have a base rate, use the value as a multiplier
+                                actual_val2 = base_discount_rate * val2
+                                self.valuation_parameters[variable2] = actual_val2
+                            else:
+                                self.valuation_parameters[variable2] = val2
 
-                        # Perform valuation
-                        valuation = self.perform_dcf_valuation()
+                        # Perform valuation with fixed parameters (not re-calculating discount rate)
+                        valuation = self.perform_dcf_valuation(
+                            use_current_discount_rate=False
+                        )
                         if valuation:
-                            results[val1][val2] = valuation.get(
+                            # Use actual values in the results table
+                            val2_key = (
+                                f"{self.valuation_parameters[variable2]:.4f}"
+                                if variable2 == "discount_rate"
+                                and base_discount_rate is not None
+                                else val2
+                            )
+                            results[val1_label][val2_key] = valuation.get(
                                 "per_share_value", np.nan
                             )
 
                 # Create DataFrame from results
                 df = pd.DataFrame(results)
+
+                # If both variables are discount_rate, we need to fix the column and index labels
+                if (
+                    variable1 == "discount_rate"
+                    and variable2 == "discount_rate"
+                    and base_discount_rate is not None
+                ):
+                    # Create a more readable format with percentages
+                    df = df.rename(columns=lambda x: f"{float(x):.2%}")
+                    df.index = [f"{float(i):.2%}" for i in df.index]
 
             # Restore original values
             self.growth_assumptions = original_growth

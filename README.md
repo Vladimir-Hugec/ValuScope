@@ -23,7 +23,7 @@ A Python-based financial analysis toolkit that fetches financial data and provid
   - Discounted Cash Flow (DCF) valuation
   - Sensitivity analysis for key valuation parameters
   - Terminal value calculation using multiple methods
-  - Dynamic discount rate calculation using current market data
+  - Dynamic discount rate calculation using current market data (default)
 
 - **End-to-End Analysis**:
   - Automated pipeline combining all analysis steps
@@ -33,7 +33,7 @@ A Python-based financial analysis toolkit that fetches financial data and provid
 
 ## Dynamic Discount Rate Calculation
 
-One of the key features of ValuScope is the ability to calculate the discount rate (WACC) dynamically using current market data:
+One of the key features of ValuScope is the ability to calculate the discount rate (WACC) dynamically using current market data. This is now the default behavior, with static values used as fallbacks when necessary:
 
 - Uses current 10-year Treasury yield as the risk-free rate
 - Retrieves company beta from Yahoo Finance
@@ -115,8 +115,8 @@ python -m valuscope AAPL --compare MSFT GOOGL AMZN
 # Customize DCF valuation parameters
 python -m valuscope AAPL --growth-rate 0.08 --terminal-growth 0.03 --discount-rate 0.095
 
-# Use dynamic discount rate calculation based on current market data
-python -m valuscope AAPL --dynamic-discount
+# Use static discount rate instead of dynamic calculation
+python -m valuscope AAPL --static-discount
 
 # Specify output directory
 python -m valuscope AAPL --output my_analysis
@@ -203,16 +203,17 @@ model.set_valuation_parameters(
 # Perform DCF valuation
 results = model.perform_dcf_valuation()
 
-# Or use dynamic discount rate calculation based on current market data
-results_dynamic = model.perform_dcf_valuation(use_current_discount_rate=True)
+# Or use static discount rate instead of dynamic calculation
+results_static = model.perform_dcf_valuation(use_current_discount_rate=False)
 
 # Display results
 model.display_valuation_results(results)
 
-# Perform sensitivity analysis
+# Perform sensitivity analysis on the dynamic discount rate (varying by ±20%)
+# and terminal growth rate
 sensitivity = model.perform_sensitivity_analysis(
-    'discount_rate', [0.08, 0.09, 0.10, 0.11, 0.12],
-    'terminal_growth', [0.02, 0.025, 0.03, 0.035, 0.04]
+    'discount_rate', [0.8, 0.9, 1.0, 1.1, 1.2],  # Relative multipliers to base rate
+    'terminal_growth', [0.02, 0.025, 0.03, 0.035, 0.04]  # Absolute values
 )
 print(sensitivity)
 ```

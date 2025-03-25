@@ -109,7 +109,7 @@ def run_financial_analysis(ticker, output_dir, comparison_tickers=None):
 
 
 def run_dcf_valuation(
-    ticker, output_dir, custom_assumptions=None, use_current_discount_rate=False
+    ticker, output_dir, custom_assumptions=None, use_current_discount_rate=True
 ):
     """Run the DCF valuation component"""
     logger.info(f"Running DCF valuation for {ticker}")
@@ -145,6 +145,7 @@ def run_dcf_valuation(
         )
         results = model.perform_dcf_valuation(use_current_discount_rate=True)
     else:
+        logger.info("Using static discount rate instead of dynamic calculation")
         results = model.perform_dcf_valuation(use_current_discount_rate=False)
 
     if results:
@@ -159,9 +160,10 @@ def run_dcf_valuation(
 
         # Perform sensitivity analysis
         logger.info("Performing sensitivity analysis...")
+        # Use relative adjustments to the dynamic discount rate (±20%) rather than fixed values
         sensitivity = model.perform_sensitivity_analysis(
             "discount_rate",
-            [0.08, 0.09, 0.10, 0.11, 0.12],
+            [0.8, 0.9, 1.0, 1.1, 1.2],  # Vary base rate by ±20%
             "terminal_growth",
             [0.02, 0.025, 0.03, 0.035, 0.04],
         )
@@ -462,9 +464,9 @@ def main():
         help="Discount rate assumption (default: 0.09)",
     )
     parser.add_argument(
-        "--dynamic-discount",
+        "--static-discount",
         action="store_true",
-        help="Calculate discount rate dynamically using current market data",
+        help="Use static discount rate instead of calculating dynamically from market data",
     )
 
     # Parse arguments
@@ -518,7 +520,7 @@ def main():
 
         # Step 3: Run DCF valuation
         valuation_results = run_dcf_valuation(
-            ticker, output_dir, custom_assumptions, args.dynamic_discount
+            ticker, output_dir, custom_assumptions, not args.static_discount
         )
 
         # Step 4: Generate final report
