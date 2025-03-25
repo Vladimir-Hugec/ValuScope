@@ -1,0 +1,655 @@
+import pandas as pd
+import numpy as np
+from valuscope.core.data_fetcher import YahooFinanceFetcher
+import logging
+
+# Set up logging
+logger = logging.getLogger(__name__)
+
+
+class DCFValuationModel:
+    """
+    A class for performing Discounted Cash Flow (DCF) valuation on companies.
+    """
+
+    def __init__(self, ticker):
+        """
+        Initialize the DCFValuationModel with a company ticker.
+
+        Args:
+            ticker (str): The stock ticker symbol of the company (e.g., 'AAPL' for Apple)
+        """
+        self.ticker = ticker.upper()
+        self.fetcher = YahooFinanceFetcher(ticker)
+        self.data = {}
+        self.company_info = {}
+        self.growth_assumptions = {
+            "revenue_growth": 0.05,  # 5% annual growth
+            "terminal_growth": 0.025,  # 2.5% terminal growth
+            "margin_improvement": 0.002,  # 0.2% annual margin improvement
+        }
+        self.valuation_parameters = {
+            "discount_rate": 0.09,  # 9% discount rate (WACC)
+            "projection_years": 5,  # 5-year projection
+            "terminal_multiple": 15,  # Terminal EV/EBITDA multiple
+        }
+        logger.info(f"Initialized DCFValuationModel for {self.ticker}")
+
+    def fetch_data(self):
+        """
+        Fetch all required financial data for the DCF model.
+
+        Returns:
+            dict: Dictionary containing all financial data
+        """
+        try:
+            # Fetch company info
+            self.company_info = self.fetcher.get_company_info()
+
+            # Fetch financial statements
+            self.fetcher.fetch_all_financial_data(quarterly=False)
+
+            # Store all data
+            self.data = self.fetcher.get_stored_data()
+
+            return self.data
+        except Exception as e:
+            logger.error(f"Error fetching data: {str(e)}")
+            return {}
+
+    def set_growth_assumptions(self, **kwargs):
+        """
+        Set growth assumptions for the DCF model.
+
+        Args:
+            **kwargs: Key-value pairs of growth assumptions to update
+        """
+        self.growth_assumptions.update(kwargs)
+        logger.info(f"Updated growth assumptions: {self.growth_assumptions}")
+
+    def set_valuation_parameters(self, **kwargs):
+        """
+        Set valuation parameters for the DCF model.
+
+        Args:
+            **kwargs: Key-value pairs of valuation parameters to update
+        """
+        self.valuation_parameters.update(kwargs)
+        logger.info(f"Updated valuation parameters: {self.valuation_parameters}")
+
+    def _extract_historical_financials(self):
+        """
+        Extract historical financials from the fetched data.
+
+        Returns:
+            dict: Dictionary containing historical financial metrics
+        """
+        if (
+            not self.data
+            or "income_statement" not in self.data
+            or "cash_flow" not in self.data
+        ):
+            logger.warning("Financial data not fetched. Call fetch_data() first.")
+            return {}
+
+        try:
+            # Get the relevant dataframes
+            income_stmt = self.data["income_statement"]
+            cash_flow = self.data["cash_flow"]
+            balance_sheet = self.data.get("balance_sheet", pd.DataFrame())
+
+            # Extract key metrics
+            historical = {}
+
+            # Get the most recent year (column) from income statement
+            latest_year = income_stmt.columns[0] if not income_stmt.empty else None
+
+            if latest_year:
+                # Extract key financial metrics
+                historical["revenue"] = (
+                    income_stmt.loc["Total Revenue", latest_year]
+                    if "Total Revenue" in income_stmt.index
+                    else np.nan
+                )
+                historical["ebitda"] = (
+                    income_stmt.loc["Normalized EBITDA", latest_year]
+                    if "Normalized EBITDA" in income_stmt.index
+                    else np.nan
+                )
+                historical["ebit"] = (
+                    income_stmt.loc["EBIT", latest_year]
+                    if "EBIT" in income_stmt.index
+                    else np.nan
+                )
+                historical["net_income"] = (
+                    income_stmt.loc["Net Income", latest_year]
+                    if "Net Income" in income_stmt.index
+                    else np.nan
+                )
+
+                # Cash flow metrics
+                historical["free_cash_flow"] = (
+                    cash_flow.loc["Free Cash Flow", latest_year]
+                    if "Free Cash Flow" in cash_flow.index
+                    else np.nan
+                )
+                historical["capex"] = (
+                    cash_flow.loc["Capital Expenditure", latest_year]
+                    if "Capital Expenditure" in cash_flow.index
+                    else np.nan
+                )
+
+                # Balance sheet metrics
+                if not balance_sheet.empty and latest_year in balance_sheet.columns:
+                    historical["total_debt"] = (
+                        balance_sheet.loc["Total Debt", latest_year]
+                        if "Total Debt" in balance_sheet.index
+                        else np.nan
+                    )
+                    historical["cash"] = (
+                        balance_sheet.loc["Cash And Cash Equivalents", latest_year]
+                        if "Cash And Cash Equivalents" in balance_sheet.index
+                        else np.nan
+                    )
+
+            # Calculate margins
+            if (
+                not np.isnan(historical.get("revenue", np.nan))
+                and historical["revenue"] > 0
+            ):
+                if not np.isnan(historical.get("ebitda", np.nan)):
+                    historical["ebitda_margin"] = (
+                        historical["ebitda"] / historical["revenue"]
+                    )
+                if not np.isnan(historical.get("ebit", np.nan)):
+                    historical["ebit_margin"] = (
+                        historical["ebit"] / historical["revenue"]
+                    )
+                if not np.isnan(historical.get("net_income", np.nan)):
+                    historical["net_margin"] = (
+                        historical["net_income"] / historical["revenue"]
+                    )
+                if not np.isnan(historical.get("free_cash_flow", np.nan)):
+                    historical["fcf_margin"] = (
+                        historical["free_cash_flow"] / historical["revenue"]
+                    )
+
+            # Get number of shares
+            historical["shares_outstanding"] = self.company_info.get(
+                "sharesOutstanding", np.nan
+            )
+
+            # Get current stock price
+            historical["current_price"] = self.company_info.get("currentPrice", np.nan)
+
+            # Calculate market cap
+            if not np.isnan(
+                historical.get("shares_outstanding", np.nan)
+            ) and not np.isnan(historical.get("current_price", np.nan)):
+                historical["market_cap"] = (
+                    historical["shares_outstanding"] * historical["current_price"]
+                )
+
+            # Calculate enterprise value
+            if not np.isnan(historical.get("market_cap", np.nan)):
+                ev = historical["market_cap"]
+                if not np.isnan(historical.get("total_debt", np.nan)):
+                    ev += historical["total_debt"]
+                if not np.isnan(historical.get("cash", np.nan)):
+                    ev -= historical["cash"]
+                historical["enterprise_value"] = ev
+
+            return historical
+
+        except Exception as e:
+            logger.error(f"Error extracting historical financials: {str(e)}")
+            return {}
+
+    def _project_financials(self, historical):
+        """
+        Project future financials based on historical data and growth assumptions.
+
+        Args:
+            historical (dict): Dictionary containing historical financial metrics
+
+        Returns:
+            dict: Dictionary containing projected financial metrics
+        """
+        if not historical:
+            logger.warning("No historical data to project from.")
+            return {}
+
+        try:
+            # Get growth assumptions
+            revenue_growth = self.growth_assumptions["revenue_growth"]
+            margin_improvement = self.growth_assumptions["margin_improvement"]
+            projection_years = self.valuation_parameters["projection_years"]
+
+            # Initialize projections dictionary
+            projections = {"years": [f"Year {i+1}" for i in range(projection_years)]}
+
+            # Project revenue
+            if not np.isnan(historical.get("revenue", np.nan)):
+                base_revenue = historical["revenue"]
+                projected_revenue = []
+                for i in range(projection_years):
+                    # Calculate revenue with compounding growth
+                    next_revenue = base_revenue * (1 + revenue_growth) ** (i + 1)
+                    projected_revenue.append(next_revenue)
+                projections["revenue"] = projected_revenue
+
+                # Project EBITDA
+                if not np.isnan(historical.get("ebitda_margin", np.nan)):
+                    base_margin = historical["ebitda_margin"]
+                    projected_ebitda = []
+                    for i in range(projection_years):
+                        # Increasing margin over time
+                        margin = min(base_margin + margin_improvement * (i + 1), 0.4)
+                        ebitda = projected_revenue[i] * margin
+                        projected_ebitda.append(ebitda)
+                    projections["ebitda"] = projected_ebitda
+                    projections["ebitda_margin"] = [
+                        projections["ebitda"][i] / projections["revenue"][i]
+                        for i in range(projection_years)
+                    ]
+
+                # Project FCF (Free Cash Flow)
+                if not np.isnan(historical.get("fcf_margin", np.nan)):
+                    base_fcf_margin = historical["fcf_margin"]
+                    projected_fcf = []
+                    for i in range(projection_years):
+                        # Gradually improving FCF margin
+                        margin = min(
+                            base_fcf_margin + margin_improvement * (i + 1), 0.35
+                        )
+                        fcf = projected_revenue[i] * margin
+                        projected_fcf.append(fcf)
+                    projections["fcf"] = projected_fcf
+                    projections["fcf_margin"] = [
+                        projections["fcf"][i] / projections["revenue"][i]
+                        for i in range(projection_years)
+                    ]
+                # If FCF margin not available, estimate from EBITDA
+                elif "ebitda" in projections:
+                    # Assume capex to revenue ratio similar to historical
+                    capex_to_revenue = (
+                        abs(historical.get("capex", 0)) / historical["revenue"]
+                        if not np.isnan(historical.get("capex", np.nan))
+                        and not np.isnan(historical.get("revenue", np.nan))
+                        and historical["revenue"] > 0
+                        else 0.05  # Default 5% capex to revenue
+                    )
+                    projected_fcf = []
+                    for i in range(projection_years):
+                        # Simplified FCF calculation: EBITDA - Capex
+                        capex = projected_revenue[i] * capex_to_revenue
+                        fcf = projections["ebitda"][i] - capex
+                        projected_fcf.append(fcf)
+                    projections["fcf"] = projected_fcf
+                    projections["fcf_margin"] = [
+                        projections["fcf"][i] / projections["revenue"][i]
+                        for i in range(projection_years)
+                    ]
+
+            return projections
+
+        except Exception as e:
+            logger.error(f"Error projecting financials: {str(e)}")
+            return {}
+
+    def _calculate_terminal_value(self, projections):
+        """
+        Calculate the terminal value for the DCF model.
+
+        Args:
+            projections (dict): Dictionary containing projected financial metrics
+
+        Returns:
+            float: Terminal value
+        """
+        if not projections or "fcf" not in projections or not projections["fcf"]:
+            logger.warning("No projections data to calculate terminal value from.")
+            return np.nan
+
+        try:
+            # Get the terminal growth rate and discount rate
+            terminal_growth = self.growth_assumptions["terminal_growth"]
+            discount_rate = self.valuation_parameters["discount_rate"]
+            terminal_multiple = self.valuation_parameters.get("terminal_multiple", 15)
+
+            # Get the last projected FCF
+            last_fcf = projections["fcf"][-1]
+
+            # Calculate terminal value using perpetuity growth method
+            # Terminal Value = FCF(n+1) / (r - g)
+            terminal_value_pg = (last_fcf * (1 + terminal_growth)) / (
+                discount_rate - terminal_growth
+            )
+
+            # Calculate terminal value using exit multiple method
+            # Terminal Value = EBITDA(n) * Multiple
+            if "ebitda" in projections and projections["ebitda"]:
+                last_ebitda = projections["ebitda"][-1]
+                terminal_value_multiple = last_ebitda * terminal_multiple
+            else:
+                terminal_value_multiple = np.nan
+
+            # Use the perpetuity growth method as default terminal value
+            terminal_value = terminal_value_pg
+
+            # If both methods available, use average
+            if not np.isnan(terminal_value_multiple):
+                terminal_value = (terminal_value_pg + terminal_value_multiple) / 2
+
+            return terminal_value
+
+        except Exception as e:
+            logger.error(f"Error calculating terminal value: {str(e)}")
+            return np.nan
+
+    def perform_dcf_valuation(self):
+        """
+        Perform Discounted Cash Flow valuation.
+
+        Returns:
+            dict: Dictionary containing valuation results
+        """
+        # Check if data has been fetched
+        if not self.data:
+            logger.warning("No data available. Call fetch_data() first.")
+            return None
+
+        try:
+            # Extract historical financials
+            historical = self._extract_historical_financials()
+            if not historical:
+                logger.warning("Could not extract historical financials.")
+                return None
+
+            # Project future financials
+            projections = self._project_financials(historical)
+            if not projections:
+                logger.warning("Could not project future financials.")
+                return None
+
+            # Calculate terminal value
+            terminal_value = self._calculate_terminal_value(projections)
+            if np.isnan(terminal_value):
+                logger.warning("Could not calculate terminal value.")
+                return None
+
+            # Get discount rate
+            discount_rate = self.valuation_parameters["discount_rate"]
+            projection_years = self.valuation_parameters["projection_years"]
+
+            # Calculate present value of projected FCFs
+            pv_fcf = []
+            if "fcf" in projections:
+                for i, fcf in enumerate(projections["fcf"]):
+                    pv = fcf / ((1 + discount_rate) ** (i + 1))
+                    pv_fcf.append(pv)
+
+            # Calculate present value of terminal value
+            pv_terminal = terminal_value / ((1 + discount_rate) ** projection_years)
+
+            # Calculate enterprise value
+            enterprise_value = sum(pv_fcf) + pv_terminal
+
+            # Calculate equity value
+            equity_value = enterprise_value
+            if not np.isnan(historical.get("total_debt", np.nan)):
+                equity_value -= historical["total_debt"]
+            if not np.isnan(historical.get("cash", np.nan)):
+                equity_value += historical["cash"]
+
+            # Calculate per share value
+            per_share_value = np.nan
+            if (
+                not np.isnan(historical.get("shares_outstanding", np.nan))
+                and historical["shares_outstanding"] > 0
+            ):
+                per_share_value = equity_value / historical["shares_outstanding"]
+
+            # Calculate upside potential
+            upside_potential = np.nan
+            if (
+                not np.isnan(per_share_value)
+                and not np.isnan(historical.get("current_price", np.nan))
+                and historical["current_price"] > 0
+            ):
+                upside_potential = (
+                    per_share_value - historical["current_price"]
+                ) / historical["current_price"]
+
+            # Prepare results
+            results = {
+                "historical": historical,
+                "projections": projections,
+                "terminal_value": terminal_value,
+                "pv_fcf": pv_fcf,
+                "pv_terminal": pv_terminal,
+                "enterprise_value": enterprise_value,
+                "equity_value": equity_value,
+                "per_share_value": per_share_value,
+                "current_price": historical.get("current_price", np.nan),
+                "upside_potential": upside_potential,
+            }
+
+            return results
+
+        except Exception as e:
+            logger.error(f"Error performing DCF valuation: {str(e)}")
+            return None
+
+    def display_valuation_results(self, results):
+        """
+        Display the results of the DCF valuation.
+
+        Args:
+            results (dict): Dictionary containing valuation results
+        """
+        if not results:
+            print("No valuation results available.")
+            return
+
+        try:
+            # Helper function for formatting currency values
+            def format_currency(value):
+                if np.isnan(value):
+                    return "N/A"
+                if abs(value) >= 1e9:
+                    return f"${value/1e9:.2f}B"
+                elif abs(value) >= 1e6:
+                    return f"${value/1e6:.2f}M"
+                else:
+                    return f"${value:,.2f}"
+
+            # Helper function for formatting percentages
+            def format_percentage(value):
+                if np.isnan(value):
+                    return "N/A"
+                return f"{value:.2%}"
+
+            # Print company info
+            print(f"\n{'=' * 50}")
+            print(f"{self.ticker} - DCF Valuation Results")
+            print(f"{'=' * 50}")
+
+            # Print historical financials
+            historical = results["historical"]
+            print("\nHistorical Financials:")
+            print(f"Revenue: {format_currency(historical.get('revenue', np.nan))}")
+            print(f"EBITDA: {format_currency(historical.get('ebitda', np.nan))}")
+            print(
+                f"EBITDA Margin: {format_percentage(historical.get('ebitda_margin', np.nan))}"
+            )
+            print(f"Free Cash Flow: {format_currency(historical.get('fcf', np.nan))}")
+            print(
+                f"FCF Margin: {format_percentage(historical.get('fcf_margin', np.nan))}"
+            )
+
+            # Print growth assumptions
+            print("\nGrowth Assumptions:")
+            print(
+                f"Revenue Growth: {format_percentage(self.growth_assumptions['revenue_growth'])}"
+            )
+            print(
+                f"Terminal Growth: {format_percentage(self.growth_assumptions['terminal_growth'])}"
+            )
+            print(
+                f"Margin Improvement: {format_percentage(self.growth_assumptions['margin_improvement'])}"
+            )
+
+            # Print valuation parameters
+            print("\nValuation Parameters:")
+            print(
+                f"Discount Rate (WACC): {format_percentage(self.valuation_parameters['discount_rate'])}"
+            )
+            print(
+                f"Projection Years: {self.valuation_parameters['projection_years']} years"
+            )
+            print(
+                f"Terminal Multiple: {self.valuation_parameters.get('terminal_multiple', 'N/A')}x"
+            )
+
+            # Print DCF components
+            print("\nDCF Components:")
+            print(
+                f"PV of Projected FCF: {format_currency(sum(results.get('pv_fcf', [0])))}"
+            )
+            print(
+                f"PV of Terminal Value: {format_currency(results.get('pv_terminal', np.nan))}"
+            )
+            print(
+                f"Enterprise Value: {format_currency(results.get('enterprise_value', np.nan))}"
+            )
+            print(
+                f"Equity Value: {format_currency(results.get('equity_value', np.nan))}"
+            )
+
+            # Print per share value and upside
+            print("\nValuation Results:")
+            print(
+                f"Implied Share Value: {format_currency(results.get('per_share_value', np.nan))}"
+            )
+            print(
+                f"Current Market Price: {format_currency(results.get('current_price', np.nan))}"
+            )
+            print(
+                f"Upside Potential: {format_percentage(results.get('upside_potential', np.nan))}"
+            )
+
+            # Print investment recommendation
+            print("\nInvestment Recommendation:")
+            upside = results.get("upside_potential", np.nan)
+            if np.isnan(upside):
+                recommendation = "N/A - insufficient data"
+            elif upside > 0.2:
+                recommendation = "Strong Buy"
+            elif upside > 0.05:
+                recommendation = "Buy"
+            elif upside > -0.05:
+                recommendation = "Hold"
+            elif upside > -0.2:
+                recommendation = "Sell"
+            else:
+                recommendation = "Strong Sell"
+            print(f"Recommendation: {recommendation}")
+
+            print(f"\n{'=' * 50}\n")
+
+        except Exception as e:
+            logger.error(f"Error displaying valuation results: {str(e)}")
+
+    def perform_sensitivity_analysis(
+        self, variable1, values1, variable2=None, values2=None
+    ):
+        """
+        Perform sensitivity analysis on key variables.
+
+        Args:
+            variable1 (str): First variable to analyze (e.g., 'discount_rate', 'revenue_growth')
+            values1 (list): List of values for the first variable
+            variable2 (str, optional): Second variable to analyze
+            values2 (list, optional): List of values for the second variable
+
+        Returns:
+            pd.DataFrame: Sensitivity analysis results
+        """
+        try:
+            # Store original values
+            original_growth = self.growth_assumptions.copy()
+            original_valuation = self.valuation_parameters.copy()
+
+            # Check if we're doing a one-dimensional or two-dimensional analysis
+            if variable2 is None or values2 is None:
+                # One-dimensional analysis
+                results = []
+                for val1 in values1:
+                    # Set the variable value
+                    if variable1 in self.growth_assumptions:
+                        self.growth_assumptions[variable1] = val1
+                    elif variable1 in self.valuation_parameters:
+                        self.valuation_parameters[variable1] = val1
+                    else:
+                        logger.warning(f"Variable {variable1} not recognized.")
+                        continue
+
+                    # Perform valuation
+                    valuation = self.perform_dcf_valuation()
+                    if valuation:
+                        results.append(
+                            {
+                                "variable_value": val1,
+                                "per_share_value": valuation.get(
+                                    "per_share_value", np.nan
+                                ),
+                                "upside_potential": valuation.get(
+                                    "upside_potential", np.nan
+                                ),
+                            }
+                        )
+
+                # Create DataFrame from results
+                df = pd.DataFrame(results)
+                df.set_index("variable_value", inplace=True)
+
+            else:
+                # Two-dimensional analysis
+                results = {}
+                for val1 in values1:
+                    results[val1] = {}
+                    for val2 in values2:
+                        # Set the variables
+                        if variable1 in self.growth_assumptions:
+                            self.growth_assumptions[variable1] = val1
+                        elif variable1 in self.valuation_parameters:
+                            self.valuation_parameters[variable1] = val1
+
+                        if variable2 in self.growth_assumptions:
+                            self.growth_assumptions[variable2] = val2
+                        elif variable2 in self.valuation_parameters:
+                            self.valuation_parameters[variable2] = val2
+
+                        # Perform valuation
+                        valuation = self.perform_dcf_valuation()
+                        if valuation:
+                            results[val1][val2] = valuation.get(
+                                "per_share_value", np.nan
+                            )
+
+                # Create DataFrame from results
+                df = pd.DataFrame(results)
+
+            # Restore original values
+            self.growth_assumptions = original_growth
+            self.valuation_parameters = original_valuation
+
+            return df
+
+        except Exception as e:
+            logger.error(f"Error performing sensitivity analysis: {str(e)}")
+            # Restore original values
+            self.growth_assumptions = original_growth
+            self.valuation_parameters = original_valuation
+            return pd.DataFrame()
