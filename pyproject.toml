@@ -1,0 +1,36 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "valuscope"
+version = "0.1.0"
+description = "ValuScope: A toolkit for financial analysis"
+readme = "README.md"
+requires-python = ">=3.10"
+authors = [
+    {name = "Vladimir Hugec", email = "vladimir.hugec.jr@gmail.com"}
+]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Operating System :: OS Independent",
+    "Topic :: Office/Business :: Financial :: Investment",
+]
+dependencies = [
+    "pandas>=1.3.0",
+    "numpy>=1.20.0",
+    "matplotlib>=3.4.0",
+    "yfinance>=0.1.63",
+    "seaborn>=0.11.0",
+    "pandas-datareader>=0.10.0",
+]
+
+[project.urls]
+"Homepage" = "https://github.com/Vladimir-Hugec/ValuScope"
+"Repository" = "https://github.com/Vladimir-Hugec/ValuScope"
+
+[project.scripts]
+valuscope = "valuscope.main:main"
+
+[tool.setuptools]
+packages = ["valuscope", "valuscope.core"] 
