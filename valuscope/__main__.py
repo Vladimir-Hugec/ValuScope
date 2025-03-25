@@ -8,12 +8,11 @@ import logging
 from valuscope.main import main
 
 if __name__ == "__main__":
-    # Set up logging
+    # Set up logging for console output only
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
         handlers=[
-            logging.FileHandler("valuscope_analysis.log"),
             logging.StreamHandler(),
         ],
     )

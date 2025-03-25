@@ -26,6 +26,10 @@ def run_data_fetcher(ticker, output_dir):
     # Create output directory if it doesn't exist
     os.makedirs(output_dir, exist_ok=True)
 
+    # Create csv subfolder
+    csv_dir = os.path.join(output_dir, "data")
+    os.makedirs(csv_dir, exist_ok=True)
+
     # Initialize fetcher and get data
     fetcher = YahooFinanceFetcher(ticker)
 
@@ -45,8 +49,8 @@ def run_data_fetcher(ticker, output_dir):
     fetcher.get_historical_prices(period="5y")
 
     # Save data to CSV files in the output directory
-    logger.info(f"Saving data to {output_dir}...")
-    saved_files = fetcher.save_data_to_csv(directory=output_dir)
+    logger.info(f"Saving data to {csv_dir}...")
+    saved_files = fetcher.save_data_to_csv(directory=csv_dir)
 
     logger.info(f"Data fetcher completed. Saved {len(saved_files)} files.")
     return fetcher.get_stored_data()
@@ -58,6 +62,12 @@ def run_financial_analysis(ticker, output_dir, comparison_tickers=None):
 
     # Create output directory if it doesn't exist
     os.makedirs(output_dir, exist_ok=True)
+
+    # Create csv and visualization subfolders
+    csv_dir = os.path.join(output_dir, "data")
+    viz_dir = os.path.join(output_dir, "visualizations")
+    os.makedirs(csv_dir, exist_ok=True)
+    os.makedirs(viz_dir, exist_ok=True)
 
     # Initialize analyzer
     analyzer = FinancialAnalyzer(ticker)
@@ -73,7 +83,7 @@ def run_financial_analysis(ticker, output_dir, comparison_tickers=None):
     if not ratios.empty:
         logger.info("\nFinancial Ratios:\n" + str(ratios))
         # Save ratios to CSV
-        ratios_file = os.path.join(output_dir, f"{ticker}_financial_ratios.csv")
+        ratios_file = os.path.join(csv_dir, f"{ticker}_financial_ratios.csv")
         ratios.to_csv(ratios_file)
         logger.info(f"Financial ratios saved to {ratios_file}")
     else:
@@ -81,7 +91,7 @@ def run_financial_analysis(ticker, output_dir, comparison_tickers=None):
 
     # Plot financial trends
     logger.info("Generating financial trends visualization...")
-    financial_trends_file = os.path.join(output_dir, f"{ticker}_financial_trends.png")
+    financial_trends_file = os.path.join(viz_dir, f"{ticker}_financial_trends.png")
     analyzer.plot_financial_trends(save_path=financial_trends_file)
 
     # Plot stock performance comparison
@@ -89,7 +99,7 @@ def run_financial_analysis(ticker, output_dir, comparison_tickers=None):
         logger.info(
             f"Comparing stock performance with {', '.join(comparison_tickers)}..."
         )
-        performance_file = os.path.join(output_dir, f"{ticker}_stock_performance.png")
+        performance_file = os.path.join(viz_dir, f"{ticker}_stock_performance.png")
         analyzer.plot_stock_performance(
             compare_tickers=comparison_tickers, period="1y", save_path=performance_file
         )
@@ -104,6 +114,12 @@ def run_dcf_valuation(ticker, output_dir, custom_assumptions=None):
 
     # Create output directory if it doesn't exist
     os.makedirs(output_dir, exist_ok=True)
+
+    # Create csv and visualization subfolders
+    csv_dir = os.path.join(output_dir, "data")
+    viz_dir = os.path.join(output_dir, "visualizations")
+    os.makedirs(csv_dir, exist_ok=True)
+    os.makedirs(viz_dir, exist_ok=True)
 
     # Initialize DCF model
     model = DCFValuationModel(ticker)
@@ -143,9 +159,7 @@ def run_dcf_valuation(ticker, output_dir, custom_assumptions=None):
         )
 
         # Save sensitivity analysis to CSV
-        sensitivity_file = os.path.join(
-            output_dir, f"{ticker}_sensitivity_analysis.csv"
-        )
+        sensitivity_file = os.path.join(csv_dir, f"{ticker}_sensitivity_analysis.csv")
         sensitivity.to_csv(sensitivity_file)
         logger.info(f"Sensitivity analysis saved to {sensitivity_file}")
 
@@ -171,7 +185,7 @@ def run_dcf_valuation(ticker, output_dir, custom_assumptions=None):
                 plt.tight_layout()
 
                 sensitivity_plot = os.path.join(
-                    output_dir, f"{ticker}_sensitivity_heatmap.png"
+                    viz_dir, f"{ticker}_sensitivity_heatmap.png"
                 )
                 plt.savefig(sensitivity_plot)
                 logger.info(f"Sensitivity heatmap saved to {sensitivity_plot}")
@@ -195,6 +209,10 @@ def generate_report(ticker, data, analysis_data, valuation_results, output_dir):
     # Create output directory if it doesn't exist
     os.makedirs(output_dir, exist_ok=True)
 
+    # Define paths for subfolders
+    csv_dir = os.path.join(output_dir, "data")
+    viz_dir = os.path.join(output_dir, "visualizations")
+
     report_file = os.path.join(output_dir, f"{ticker}_financial_analysis_report.html")
 
     # Get company info
@@ -202,7 +220,7 @@ def generate_report(ticker, data, analysis_data, valuation_results, output_dir):
 
     # Try to load financial ratios from saved file if not in analysis_data
     ratios = None
-    ratios_file = os.path.join(output_dir, f"{ticker}_financial_ratios.csv")
+    ratios_file = os.path.join(csv_dir, f"{ticker}_financial_ratios.csv")
     try:
         if os.path.exists(ratios_file):
             ratios = pd.read_csv(ratios_file, index_col=0)
@@ -285,14 +303,12 @@ def generate_report(ticker, data, analysis_data, valuation_results, output_dir):
                 return str(value)
 
         # Check if visualization files exist
-        financial_trends_path = os.path.join(
-            output_dir, f"{ticker}_financial_trends.png"
-        )
+        financial_trends_path = os.path.join(viz_dir, f"{ticker}_financial_trends.png")
         stock_performance_path = os.path.join(
-            output_dir, f"{ticker}_stock_performance.png"
+            viz_dir, f"{ticker}_stock_performance.png"
         )
         sensitivity_heatmap_path = os.path.join(
-            output_dir, f"{ticker}_sensitivity_heatmap.png"
+            viz_dir, f"{ticker}_sensitivity_heatmap.png"
         )
 
         has_financial_trends = os.path.exists(financial_trends_path)
@@ -306,7 +322,7 @@ def generate_report(ticker, data, analysis_data, valuation_results, output_dir):
             else "<p>No financial ratio data available</p>"
         )
 
-        # Create HTML report
+        # Create HTML report with relative paths to visualization files
         html_content = f"""
         <!DOCTYPE html>
         <html>
@@ -369,9 +385,9 @@ def generate_report(ticker, data, analysis_data, valuation_results, output_dir):
             
             <div class="section">
                 <h2>Financial Visualizations</h2>
-                {'<div class="image-container"><h3>Financial Trends</h3><img src="' + ticker + '_financial_trends.png" alt="Financial Trends" style="max-width:100%;"></div>' if has_financial_trends else '<p>Financial trends visualization not available</p>'}
-                {'<div class="image-container"><h3>Stock Performance Comparison</h3><img src="' + ticker + '_stock_performance.png" alt="Stock Performance" style="max-width:100%;"></div>' if has_stock_performance else '<p>Stock performance comparison visualization not available</p>'}
-                {'<div class="image-container"><h3>Sensitivity Analysis</h3><img src="' + ticker + '_sensitivity_heatmap.png" alt="Sensitivity Analysis" style="max-width:100%;"></div>' if has_sensitivity_heatmap else '<p>Sensitivity analysis visualization not available</p>'}
+                {'<div class="image-container"><h3>Financial Trends</h3><img src="visualizations/' + ticker + '_financial_trends.png" alt="Financial Trends" style="max-width:100%;"></div>' if has_financial_trends else '<p>Financial trends visualization not available</p>'}
+                {'<div class="image-container"><h3>Stock Performance Comparison</h3><img src="visualizations/' + ticker + '_stock_performance.png" alt="Stock Performance" style="max-width:100%;"></div>' if has_stock_performance else '<p>Stock performance comparison visualization not available</p>'}
+                {'<div class="image-container"><h3>Sensitivity Analysis</h3><img src="visualizations/' + ticker + '_sensitivity_heatmap.png" alt="Sensitivity Analysis" style="max-width:100%;"></div>' if has_sensitivity_heatmap else '<p>Sensitivity analysis visualization not available</p>'}
             </div>
             
             <div class="section">
@@ -444,8 +460,30 @@ def main():
     ticker = args.ticker.upper()
     output_dir = os.path.join(args.output, ticker)
 
+    # Create main output directory if it doesn't exist
+    os.makedirs(output_dir, exist_ok=True)
+
+    # Create logs directory
+    logs_dir = os.path.join(output_dir, "logs")
+    os.makedirs(logs_dir, exist_ok=True)
+
+    # Set up logging to file in the logs directory
+    log_file = os.path.join(logs_dir, f"{ticker}_financial_analysis.log")
+    file_handler = logging.FileHandler(log_file)
+    file_handler.setFormatter(
+        logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
+    )
+
+    # Get the root logger and add the file handler
+    root_logger = logging.getLogger()
+    for handler in root_logger.handlers[:]:
+        if isinstance(handler, logging.FileHandler):
+            root_logger.removeHandler(handler)
+    root_logger.addHandler(file_handler)
+
     logger.info(f"Starting end-to-end financial analysis for {ticker}")
     logger.info(f"Results will be saved to {output_dir}")
+    logger.info(f"Logs will be saved to {log_file}")
 
     # Custom assumptions for the DCF model
     custom_assumptions = {
@@ -489,7 +527,6 @@ if __name__ == "__main__":
         level=logging.INFO,
         format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
         handlers=[
-            logging.FileHandler("financial_analysis.log"),
             logging.StreamHandler(),
         ],
     )
