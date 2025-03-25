@@ -35,6 +35,8 @@ class DCFValuationModel:
             "projection_years": 5,  # 5-year projection
             "terminal_multiple": 15,  # Terminal EV/EBITDA multiple
         }
+        self.dynamic_discount_rate = None  # Store the calculated dynamic discount rate
+        self.risk_free_rate = None  # Store the calculated risk-free rate
         logger.info(f"Initialized DCFValuationModel for {self.ticker}")
 
     def fetch_data(self):
@@ -80,7 +82,12 @@ class DCFValuationModel:
         logger.info(f"Updated valuation parameters: {self.valuation_parameters}")
 
     def calculate_current_discount_rate(
-        self, use_market_data=True, beta=None, equity_risk_premium=None, tax_rate=0.21
+        self,
+        use_market_data=True,
+        beta=None,
+        equity_risk_premium=None,
+        tax_rate=0.21,
+        force_recalculate=False,
     ):
         """
         Calculate the discount rate (WACC) based on current market data.
@@ -90,24 +97,32 @@ class DCFValuationModel:
             beta (float, optional): Company's beta, if None will use the one from the fetched data
             equity_risk_premium (float, optional): Market equity risk premium, defaults to 5.5% if None
             tax_rate (float): Corporate tax rate, defaults to 21%
+            force_recalculate (bool): Whether to force recalculation even if already stored
 
         Returns:
             float: Calculated WACC (discount rate)
         """
+        # Return the cached value if available and not forcing recalculation
+        if self.dynamic_discount_rate is not None and not force_recalculate:
+            logger.info(
+                f"Using cached dynamic discount rate: {self.dynamic_discount_rate:.2%}"
+            )
+            return self.dynamic_discount_rate
+
         try:
             # Get current risk-free rate from 10-year Treasury
             if use_market_data:
-                risk_free_rate = self._get_current_risk_free_rate()
-                if risk_free_rate is None:
+                self.risk_free_rate = self._get_current_risk_free_rate()
+                if self.risk_free_rate is None:
                     # Fall back to default if couldn't fetch current rate
-                    risk_free_rate = 0.04  # 4% as fallback
+                    self.risk_free_rate = 0.04  # 4% as fallback
                     logger.warning(
-                        f"Couldn't fetch current risk-free rate, using default: {risk_free_rate}"
+                        f"Couldn't fetch current risk-free rate, using default: {self.risk_free_rate}"
                     )
                 else:
-                    logger.info(f"Using current risk-free rate: {risk_free_rate}")
+                    logger.info(f"Using latest risk-free rate: {self.risk_free_rate}")
             else:
-                risk_free_rate = 0.04  # Default 4% if not using market data
+                self.risk_free_rate = 0.04  # Default 4% if not using market data
 
             # Get beta for the company
             if beta is None:
@@ -126,7 +141,7 @@ class DCFValuationModel:
 
             # Calculate cost of equity using CAPM
             # Cost of Equity = Risk Free Rate + Beta * Equity Risk Premium
-            cost_of_equity = risk_free_rate + beta * equity_risk_premium
+            cost_of_equity = self.risk_free_rate + beta * equity_risk_premium
 
             # Get debt information
             total_debt = 0
@@ -146,7 +161,7 @@ class DCFValuationModel:
             credit_spread = (
                 0.02  # Typical credit spread, can be refined based on credit rating
             )
-            cost_of_debt = risk_free_rate + credit_spread
+            cost_of_debt = self.risk_free_rate + credit_spread
 
             # Calculate after-tax cost of debt
             after_tax_cost_of_debt = cost_of_debt * (1 - tax_rate)
@@ -191,6 +206,9 @@ class DCFValuationModel:
 
             # Update valuation parameters with the calculated WACC
             self.valuation_parameters["discount_rate"] = wacc
+
+            # Store the calculated discount rate
+            self.dynamic_discount_rate = wacc
 
             return wacc
 
@@ -526,7 +544,15 @@ class DCFValuationModel:
         try:
             # Calculate the discount rate based on current market data by default
             if use_current_discount_rate:
-                self.calculate_current_discount_rate()
+                # Only recalculate if no stored value
+                if self.dynamic_discount_rate is None:
+                    self.calculate_current_discount_rate()
+                else:
+                    # Use the stored value
+                    self.valuation_parameters["discount_rate"] = (
+                        self.dynamic_discount_rate
+                    )
+
                 logger.info(
                     f"Using dynamically calculated discount rate: {self.valuation_parameters['discount_rate']:.2%}"
                 )
@@ -610,9 +636,7 @@ class DCFValuationModel:
                 "upside_potential": upside_potential,
                 "discount_rate": discount_rate,
                 "risk_free_rate": (
-                    self._get_current_risk_free_rate()
-                    if use_current_discount_rate
-                    else None
+                    self.risk_free_rate if use_current_discount_rate else None
                 ),
             }
 
@@ -771,14 +795,21 @@ class DCFValuationModel:
             original_valuation = self.valuation_parameters.copy()
 
             # If we need to analyze discount_rate and we're using dynamic calculation,
-            # first calculate the base discount rate
+            # calculate the base discount rate if not already stored
             base_discount_rate = None
             if variable1 == "discount_rate" or variable2 == "discount_rate":
-                # Calculate the dynamic discount rate to use as base
-                base_discount_rate = self.calculate_current_discount_rate()
-                logger.info(
-                    f"Using dynamic discount rate as base for sensitivity analysis: {base_discount_rate:.2%}"
-                )
+                # Use cached value if available
+                if self.dynamic_discount_rate is not None:
+                    base_discount_rate = self.dynamic_discount_rate
+                    logger.info(
+                        f"Using cached dynamic discount rate as base for sensitivity analysis: {base_discount_rate:.2%}"
+                    )
+                else:
+                    # Calculate the dynamic discount rate to use as base
+                    base_discount_rate = self.calculate_current_discount_rate()
+                    logger.info(
+                        f"Using dynamic discount rate as base for sensitivity analysis: {base_discount_rate:.2%}"
+                    )
 
             # Check if we're doing a one-dimensional or two-dimensional analysis
             if variable2 is None or values2 is None:
