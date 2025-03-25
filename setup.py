@@ -19,10 +19,10 @@ setup(
     },
     author="Vladimir Hugec",
     author_email="vladimir.hugec.jr@gmail.com",
-    description="ValuScope: A toolkit for financial analysis and stock valuation",
+    description="ValuScope: A toolkit for financial analysis",
     long_description=open("README.md").read(),
     long_description_content_type="text/markdown",
-    url="https://github.com/username/valuscope",
+    url="https://github.com/Vladimir-Hugec/ValuScope",
     classifiers=[
         "Programming Language :: Python :: 3",
         "License :: OSI Approved :: MIT License",
