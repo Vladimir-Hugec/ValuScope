@@ -108,7 +108,9 @@ def run_financial_analysis(ticker, output_dir, comparison_tickers=None):
     return analyzer.data
 
 
-def run_dcf_valuation(ticker, output_dir, custom_assumptions=None):
+def run_dcf_valuation(
+    ticker, output_dir, custom_assumptions=None, use_current_discount_rate=False
+):
     """Run the DCF valuation component"""
     logger.info(f"Running DCF valuation for {ticker}")
 
@@ -137,7 +139,13 @@ def run_dcf_valuation(ticker, output_dir, custom_assumptions=None):
 
     # Perform DCF valuation
     logger.info("Performing DCF valuation...")
-    results = model.perform_dcf_valuation()
+    if use_current_discount_rate:
+        logger.info(
+            "Using dynamic discount rate calculation based on current market data"
+        )
+        results = model.perform_dcf_valuation(use_current_discount_rate=True)
+    else:
+        results = model.perform_dcf_valuation(use_current_discount_rate=False)
 
     if results:
         # Save valuation summary to text file
@@ -453,6 +461,11 @@ def main():
         default=0.09,
         help="Discount rate assumption (default: 0.09)",
     )
+    parser.add_argument(
+        "--dynamic-discount",
+        action="store_true",
+        help="Calculate discount rate dynamically using current market data",
+    )
 
     # Parse arguments
     args = parser.parse_args()
@@ -504,7 +517,9 @@ def main():
         analysis_data = run_financial_analysis(ticker, output_dir, args.compare)
 
         # Step 3: Run DCF valuation
-        valuation_results = run_dcf_valuation(ticker, output_dir, custom_assumptions)
+        valuation_results = run_dcf_valuation(
+            ticker, output_dir, custom_assumptions, args.dynamic_discount
+        )
 
         # Step 4: Generate final report
         report_file = generate_report(

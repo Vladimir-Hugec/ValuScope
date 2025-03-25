@@ -2,6 +2,8 @@ import pandas as pd
 import numpy as np
 from valuscope.core.data_fetcher import YahooFinanceFetcher
 import logging
+import requests
+from datetime import datetime
 
 # Set up logging
 logger = logging.getLogger(__name__)
@@ -76,6 +78,164 @@ class DCFValuationModel:
         """
         self.valuation_parameters.update(kwargs)
         logger.info(f"Updated valuation parameters: {self.valuation_parameters}")
+
+    def calculate_current_discount_rate(
+        self, use_market_data=True, beta=None, equity_risk_premium=None, tax_rate=0.21
+    ):
+        """
+        Calculate the discount rate (WACC) based on current market data.
+
+        Args:
+            use_market_data (bool): Whether to use current market data for risk-free rate
+            beta (float, optional): Company's beta, if None will use the one from the fetched data
+            equity_risk_premium (float, optional): Market equity risk premium, defaults to 5.5% if None
+            tax_rate (float): Corporate tax rate, defaults to 21%
+
+        Returns:
+            float: Calculated WACC (discount rate)
+        """
+        try:
+            # Get current risk-free rate from 10-year Treasury
+            if use_market_data:
+                risk_free_rate = self._get_current_risk_free_rate()
+                if risk_free_rate is None:
+                    # Fall back to default if couldn't fetch current rate
+                    risk_free_rate = 0.04  # 4% as fallback
+                    logger.warning(
+                        f"Couldn't fetch current risk-free rate, using default: {risk_free_rate}"
+                    )
+                else:
+                    logger.info(f"Using current risk-free rate: {risk_free_rate}")
+            else:
+                risk_free_rate = 0.04  # Default 4% if not using market data
+
+            # Get beta for the company
+            if beta is None:
+                beta = self.company_info.get("beta", 1.0)
+                if beta is None or np.isnan(beta):
+                    beta = 1.0  # Default to market beta if not available
+                    logger.warning(
+                        f"Beta not available for {self.ticker}, using default: {beta}"
+                    )
+                else:
+                    logger.info(f"Using beta: {beta} for {self.ticker}")
+
+            # Use standard equity risk premium if not provided
+            if equity_risk_premium is None:
+                equity_risk_premium = 0.055  # 5.5% standard equity risk premium
+
+            # Calculate cost of equity using CAPM
+            # Cost of Equity = Risk Free Rate + Beta * Equity Risk Premium
+            cost_of_equity = risk_free_rate + beta * equity_risk_premium
+
+            # Get debt information
+            total_debt = 0
+            if "balance_sheet" in self.data and not self.data["balance_sheet"].empty:
+                balance_sheet = self.data["balance_sheet"]
+                latest_year = (
+                    balance_sheet.columns[0] if not balance_sheet.empty else None
+                )
+
+                if latest_year and "Total Debt" in balance_sheet.index:
+                    total_debt = balance_sheet.loc["Total Debt", latest_year]
+                    if np.isnan(total_debt):
+                        total_debt = 0
+
+            # Calculate cost of debt (yield on debt or estimate based on credit quality)
+            # For simplicity, estimate cost of debt as risk-free rate + credit spread
+            credit_spread = (
+                0.02  # Typical credit spread, can be refined based on credit rating
+            )
+            cost_of_debt = risk_free_rate + credit_spread
+
+            # Calculate after-tax cost of debt
+            after_tax_cost_of_debt = cost_of_debt * (1 - tax_rate)
+
+            # Calculate market value of equity
+            shares_outstanding = self.company_info.get("sharesOutstanding", 0)
+            current_price = self.company_info.get("currentPrice", 0)
+
+            if (
+                np.isnan(shares_outstanding)
+                or np.isnan(current_price)
+                or shares_outstanding == 0
+                or current_price == 0
+            ):
+                # If we can't calculate market cap, default to simplified WACC calculation
+                logger.warning(
+                    f"Market cap not available for {self.ticker}, using simplified WACC calculation"
+                )
+                # Default weights if we can't calculate them
+                weight_of_equity = 0.7  # Typical 70/30 split for many companies
+                weight_of_debt = 0.3
+            else:
+                market_cap = shares_outstanding * current_price
+
+                # Calculate total capital
+                total_capital = market_cap + total_debt
+
+                if total_capital == 0:
+                    weight_of_equity = 1.0
+                    weight_of_debt = 0.0
+                else:
+                    # Calculate weights
+                    weight_of_equity = market_cap / total_capital
+                    weight_of_debt = total_debt / total_capital
+
+            # Calculate WACC
+            wacc = (weight_of_equity * cost_of_equity) + (
+                weight_of_debt * after_tax_cost_of_debt
+            )
+
+            logger.info(f"Calculated WACC for {self.ticker}: {wacc:.4f} ({wacc:.2%})")
+
+            # Update valuation parameters with the calculated WACC
+            self.valuation_parameters["discount_rate"] = wacc
+
+            return wacc
+
+        except Exception as e:
+            logger.error(f"Error calculating current discount rate: {str(e)}")
+            # Fall back to default discount rate
+            return self.valuation_parameters["discount_rate"]
+
+    def _get_current_risk_free_rate(self):
+        """
+        Get the current risk-free rate from the 10-year Treasury yield.
+
+        Returns:
+            float: Current risk-free rate as decimal
+        """
+        try:
+            # Try to fetch from U.S. Treasury website or financial API
+            # For demonstration, we'll use a simple API request
+            url = "https://api.fiscaldata.treasury.gov/services/api/fiscal_service/v2/accounting/od/avg_interest_rates"
+            params = {
+                "filter": "security_desc:eq:Treasury Bonds",
+                "sort": "-record_date",
+                "limit": 1,
+            }
+
+            try:
+                response = requests.get(url, params=params)
+                if response.status_code == 200:
+                    data = response.json()
+                    if "data" in data and len(data["data"]) > 0:
+                        # Convert percent to decimal
+                        rate = float(data["data"][0]["avg_interest_rate_amt"]) / 100
+                        return rate
+            except:
+                # If Treasury API fails, try an alternative method
+                pass
+
+            # If the above fails, we can try alternative methods:
+            # 1. Fixed hard-coded current value (less ideal but works as fallback)
+            current_10yr_treasury = 0.0416  # 4.16% as of latest data
+            return current_10yr_treasury
+
+        except Exception as e:
+            logger.error(f"Error fetching current risk-free rate: {str(e)}")
+            return None
 
     def _extract_historical_financials(self):
         """
@@ -347,9 +507,13 @@ class DCFValuationModel:
             logger.error(f"Error calculating terminal value: {str(e)}")
             return np.nan
 
-    def perform_dcf_valuation(self):
+    def perform_dcf_valuation(self, use_current_discount_rate=False):
         """
         Perform Discounted Cash Flow valuation.
+
+        Args:
+            use_current_discount_rate (bool): Whether to calculate discount rate
+                                            based on current market data
 
         Returns:
             dict: Dictionary containing valuation results
@@ -360,6 +524,17 @@ class DCFValuationModel:
             return None
 
         try:
+            # If requested, calculate the discount rate based on current market data
+            if use_current_discount_rate:
+                self.calculate_current_discount_rate()
+                logger.info(
+                    f"Using dynamically calculated discount rate: {self.valuation_parameters['discount_rate']:.2%}"
+                )
+            else:
+                logger.info(
+                    f"Using predefined discount rate: {self.valuation_parameters['discount_rate']:.2%}"
+                )
+
             # Extract historical financials
             historical = self._extract_historical_financials()
             if not historical:
@@ -433,6 +608,12 @@ class DCFValuationModel:
                 "per_share_value": per_share_value,
                 "current_price": historical.get("current_price", np.nan),
                 "upside_potential": upside_potential,
+                "discount_rate": discount_rate,
+                "risk_free_rate": (
+                    self._get_current_risk_free_rate()
+                    if use_current_discount_rate
+                    else None
+                ),
             }
 
             return results

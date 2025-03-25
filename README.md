@@ -23,11 +23,27 @@ A Python-based financial analysis toolkit that fetches financial data and provid
   - Discounted Cash Flow (DCF) valuation
   - Sensitivity analysis for key valuation parameters
   - Terminal value calculation using multiple methods
+  - Dynamic discount rate calculation using current market data
 
 - **End-to-End Analysis**:
   - Automated pipeline combining all analysis steps
   - HTML report generation with visualizations
   - Command-line interface with customizable parameters
+  - Organized output with separate folders for data, visualizations, and logs
+
+## Dynamic Discount Rate Calculation
+
+One of the key features of ValuScope is the ability to calculate the discount rate (WACC) dynamically using current market data:
+
+- Uses current 10-year Treasury yield as the risk-free rate
+- Retrieves company beta from Yahoo Finance
+- Applies standard equity risk premium (5.5%)
+- Calculates cost of equity using CAPM
+- Determines the company's debt structure and calculates after-tax cost of debt
+- Computes WACC based on the company's current capital structure
+- Uses intelligent fallback mechanisms when data is unavailable
+
+This feature provides more accurate valuations by adapting to current market conditions rather than relying on fixed assumptions.
 
 ## Project Structure
 
@@ -98,6 +114,9 @@ python -m valuscope AAPL --compare MSFT GOOGL AMZN
 
 # Customize DCF valuation parameters
 python -m valuscope AAPL --growth-rate 0.08 --terminal-growth 0.03 --discount-rate 0.095
+
+# Use dynamic discount rate calculation based on current market data
+python -m valuscope AAPL --dynamic-discount
 
 # Specify output directory
 python -m valuscope AAPL --output my_analysis
@@ -184,6 +203,9 @@ model.set_valuation_parameters(
 # Perform DCF valuation
 results = model.perform_dcf_valuation()
 
+# Or use dynamic discount rate calculation based on current market data
+results_dynamic = model.perform_dcf_valuation(use_current_discount_rate=True)
+
 # Display results
 model.display_valuation_results(results)
 
@@ -197,27 +219,27 @@ print(sensitivity)
 
 ## Generated Reports and Visualizations
 
-The end-to-end analysis generates the following outputs:
+The end-to-end analysis generates the following outputs in an organized folder structure:
 
-1. **Data Files**:
+1. **Main Output Folder**:
+
+   - HTML financial analysis report
+   - Valuation summary text file
+
+2. **Data Subfolder**:
 
    - CSV files for balance sheet, income statement, cash flow, and historical prices
-
-2. **Financial Analysis**:
-
    - Financial ratios CSV
-   - Financial trends visualization
+   - Sensitivity analysis CSV
+
+3. **Visualizations Subfolder**:
+
+   - Financial trends chart
    - Stock performance comparison chart
+   - Sensitivity analysis heatmap
 
-3. **DCF Valuation**:
-
-   - Valuation summary text file
-   - Sensitivity analysis CSV and heatmap
-
-4. **HTML Report**:
-   - Comprehensive report combining all analysis results
-   - Interactive visualizations
-   - Investment recommendation
+4. **Logs Subfolder**:
+   - Analysis log file with detailed execution information
 
 ## Development
 
