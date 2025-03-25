@@ -27,6 +27,7 @@ def get_report_template():
                 .image-container {{ margin: 20px 0; }}
                 .recommendation {{ font-size: 24px; font-weight: bold; text-align: center; margin: 20px; }}
                 .acronym-explanation {{ margin-bottom: 10px; font-style: italic; color: #666; }}
+                .assumptions-box {{ margin-top: 10px; padding: 10px; background-color: #f5f5f5; border-radius: 5px; font-size: 0.9em; }}
             </style>
         </head>
         <body>
@@ -64,10 +65,11 @@ def get_report_template():
                         <p>{upside}</p>
                     </div>
                 </div>
+                {assumptions_html}
             </div>
             
             <div class="section">
-                <h2>Financial Ratios</h2>
+                <h3 class="mt-4">Financial Ratios</h3>
                 <div class="acronym-explanation">
                     <strong>ROE</strong> - Return on Equity: Net Income / Total Equity<br>
                     <strong>ROA</strong> - Return on Assets: Net Income / Total Assets<br>
@@ -101,3 +103,20 @@ def get_report_template():
         </body>
         </html>
         """
+
+
+def get_assumptions_html_template():
+    """
+    Returns the HTML template for the DCF valuation assumptions section.
+
+    This is designed to be shown in the Key Financial Metrics section
+    to explain how the target price was derived from the DCF model.
+    """
+    return """
+    <div class="assumptions-box">
+        <p>
+            <strong>DCF Valuation Assumptions:</strong><br>
+            Revenue Growth: {revenue_growth} | Terminal Growth: {terminal_growth} | Discount Rate (WACC): {discount_rate} | Risk-Free Rate: {risk_free_rate}
+        </p>
+    </div>
+    """

@@ -14,7 +14,7 @@ import matplotlib.pyplot as plt
 from valuscope.core.data_fetcher import YahooFinanceFetcher
 from valuscope.core.analysis import FinancialAnalyzer
 from valuscope.core.valuation import DCFValuationModel
-from valuscope.templates import get_report_template
+from valuscope.templates import get_report_template, get_assumptions_html_template
 
 # Get logger for this module
 logger = logging.getLogger(__name__)
@@ -282,7 +282,9 @@ def run_dcf_valuation(
     return results
 
 
-def generate_report(ticker, data, analysis_data, valuation_results, output_dir):
+def generate_report(
+    ticker, data, analysis_data, valuation_results, output_dir, custom_assumptions=None
+):
     """Generate an HTML report summarizing all results"""
     logger.info(f"Generating final report for {ticker}")
 
@@ -428,6 +430,49 @@ def generate_report(ticker, data, analysis_data, valuation_results, output_dir):
         # Get the HTML template
         template = get_report_template()
 
+        # Prepare assumptions HTML if valuation results are available
+        assumptions_html = ""
+        if valuation_results:
+            # Get the assumptions used for the DCF model
+            revenue_growth = format_percentage(
+                custom_assumptions.get("growth", {}).get("revenue_growth", 0.05)
+                if custom_assumptions
+                else 0.05
+            )
+            terminal_growth = format_percentage(
+                custom_assumptions.get("growth", {}).get("terminal_growth", 0.025)
+                if custom_assumptions
+                else 0.025
+            )
+            discount_rate = format_percentage(
+                valuation_results.get(
+                    "discount_rate",
+                    (
+                        custom_assumptions.get("valuation", {}).get(
+                            "discount_rate", 0.09
+                        )
+                        if custom_assumptions
+                        else 0.09
+                    ),
+                )
+            )
+
+            # Get risk-free rate if available
+            risk_free_rate = format_percentage(
+                valuation_results.get("risk_free_rate", "N/A")
+                if valuation_results.get("risk_free_rate") is not None
+                else "N/A"
+            )
+
+            # Get the assumptions template and format it with values
+            assumptions_template = get_assumptions_html_template()
+            assumptions_html = assumptions_template.format(
+                revenue_growth=revenue_growth,
+                terminal_growth=terminal_growth,
+                discount_rate=discount_rate,
+                risk_free_rate=risk_free_rate,
+            )
+
         # Format the template with data
         html_content = template.format(
             ticker=ticker,
@@ -446,6 +491,7 @@ def generate_report(ticker, data, analysis_data, valuation_results, output_dir):
             stock_performance_html=stock_performance_html,
             sensitivity_heatmap_html=sensitivity_heatmap_html,
             recommendation=recommendation,
+            assumptions_html=assumptions_html,
         )
 
         # Write to file
@@ -555,7 +601,12 @@ def main():
 
         # Step 4: Generate final report
         report_file = generate_report(
-            ticker, data, analysis_data, valuation_results, output_dir
+            ticker,
+            data,
+            analysis_data,
+            valuation_results,
+            output_dir,
+            custom_assumptions,
         )
 
         logger.info(f"End-to-end financial analysis completed for {ticker}")
