@@ -14,9 +14,8 @@ import matplotlib.pyplot as plt
 from valuscope.core.data_fetcher import YahooFinanceFetcher
 from valuscope.core.analysis import FinancialAnalyzer
 from valuscope.core.valuation import DCFValuationModel
-from valuscope.templates import get_report_template, get_assumptions_html_template
+from valuscope.templates import get_report_template, get_assumptions_html_template, get_visualization_html_templates
 
-# Get logger for this module
 logger = logging.getLogger(__name__)
 
 
@@ -31,7 +30,6 @@ def run_data_fetcher(ticker, output_dir):
     csv_dir = os.path.join(output_dir, "data")
     os.makedirs(csv_dir, exist_ok=True)
 
-    # Initialize fetcher and get data
     fetcher = YahooFinanceFetcher(ticker)
 
     # Get company info
@@ -41,15 +39,12 @@ def run_data_fetcher(ticker, output_dir):
         logger.info(f"Industry: {company_info.get('industry', 'N/A')}")
         logger.info(f"Market Cap: ${company_info.get('marketCap', 'N/A'):,}")
 
-    # Fetch financial statements
     logger.info("Fetching financial statements...")
     fetcher.fetch_all_financial_data(quarterly=False)
 
-    # Fetch historical prices
     logger.info("Fetching historical stock prices...")
     fetcher.get_historical_prices(period="5y")
 
-    # Save data to CSV files in the output directory
     logger.info(f"Saving data to {csv_dir}...")
     saved_files = fetcher.save_data_to_csv(directory=csv_dir)
 
@@ -61,23 +56,18 @@ def run_financial_analysis(ticker, output_dir, comparison_tickers=None):
     """Run the financial analysis component"""
     logger.info(f"Running financial analysis for {ticker}")
 
-    # Create output directory if it doesn't exist
     os.makedirs(output_dir, exist_ok=True)
 
-    # Create csv and visualization subfolders
     csv_dir = os.path.join(output_dir, "data")
     viz_dir = os.path.join(output_dir, "visualizations")
     os.makedirs(csv_dir, exist_ok=True)
     os.makedirs(viz_dir, exist_ok=True)
 
-    # Initialize analyzer
     analyzer = FinancialAnalyzer(ticker)
 
-    # Fetch data
     logger.info("Fetching data for analysis...")
     analyzer.fetch_data()
 
-    # Calculate financial ratios
     logger.info("Calculating financial ratios...")
     ratios = analyzer.calculate_financial_ratios()
 
@@ -90,7 +80,6 @@ def run_financial_analysis(ticker, output_dir, comparison_tickers=None):
     else:
         logger.warning("Could not calculate financial ratios")
 
-    # Plot financial trends
     logger.info("Generating financial trends visualization...")
     financial_trends_file = os.path.join(viz_dir, f"{ticker}_financial_trends.png")
     analyzer.plot_financial_trends(save_path=financial_trends_file)
@@ -115,19 +104,15 @@ def run_dcf_valuation(
     """Run the DCF valuation component"""
     logger.info(f"Running DCF valuation for {ticker}")
 
-    # Create output directory if it doesn't exist
     os.makedirs(output_dir, exist_ok=True)
 
-    # Create csv and visualization subfolders
     csv_dir = os.path.join(output_dir, "data")
     viz_dir = os.path.join(output_dir, "visualizations")
     os.makedirs(csv_dir, exist_ok=True)
     os.makedirs(viz_dir, exist_ok=True)
 
-    # Initialize DCF model
     model = DCFValuationModel(ticker)
 
-    # Fetch data
     logger.info("Fetching data for DCF valuation...")
     model.fetch_data()
 
@@ -138,7 +123,6 @@ def run_dcf_valuation(
         if "valuation" in custom_assumptions:
             model.set_valuation_parameters(**custom_assumptions["valuation"])
 
-    # Perform DCF valuation
     logger.info("Performing DCF valuation...")
     if use_current_discount_rate:
         logger.info(
@@ -307,6 +291,51 @@ def run_dcf_valuation(
 
         except (ImportError, ValueError, TypeError) as e:
             logger.warning(f"Could not create equilibrium plot: {str(e)}")
+            
+        # Create the revenue-terminal growth equilibrium plot showing combinations
+        # that yield the current stock price while holding discount rate constant
+        try:
+            logger.info("Generating revenue-terminal growth equilibrium plot...")
+            rev_growth_plot = os.path.join(viz_dir, f"{ticker}_rev_term_growth_equilibrium.png")
+
+            # Create the equilibrium plot with a resolution of 15 points for each axis
+            # This gives a good balance between precision and calculation time
+            try:
+                _, eq_df, reg_params = model.plot_revenue_terminal_growth_equilibrium(
+                    save_path=rev_growth_plot, resolution=15
+                )
+
+                if eq_df is not None and not eq_df.empty:
+                    # Save equilibrium points to CSV
+                    eq_points_file = os.path.join(
+                        csv_dir, f"{ticker}_rev_term_growth_points.csv"
+                    )
+                    eq_df.to_csv(eq_points_file)
+                    logger.info(f"Revenue-terminal growth equilibrium points saved to {eq_points_file}")
+
+                    logger.info(f"Revenue-terminal growth equilibrium plot saved to {rev_growth_plot}")
+                    
+                    # Log regression equation based on degree
+                    if reg_params.get('degree') == 1:
+                        logger.info(
+                            f"Regression equation: Terminal Growth = {reg_params['slope']:.4f} × Revenue Growth + {reg_params['intercept']:.4f}"
+                        )
+                    else:
+                        logger.info(
+                            f"Polynomial regression of degree {reg_params.get('degree')} found for revenue-terminal growth relationship"
+                        )
+                else:
+                    logger.warning(
+                        "Could not generate revenue-terminal growth equilibrium plot: no equilibrium points found"
+                    )
+            except ImportError as e:
+                logger.warning(f"ImportError creating revenue-terminal growth plot: {str(e)}. Make sure scikit-learn is installed.")
+            except Exception as e:
+                logger.warning(f"Unexpected error creating revenue-terminal growth plot: {str(e)}")
+
+        except (ImportError, ValueError, TypeError) as e:
+            logger.warning(f"Could not create revenue-terminal growth equilibrium plot: {str(e)}")
+            
     else:
         logger.warning("DCF valuation could not be completed")
 
@@ -320,16 +349,13 @@ def generate_report(
     """Generate an HTML report summarizing all results"""
     logger.info(f"Generating final report for {ticker}")
 
-    # Create output directory if it doesn't exist
     os.makedirs(output_dir, exist_ok=True)
 
-    # Define paths for subfolders
     csv_dir = os.path.join(output_dir, "data")
     viz_dir = os.path.join(output_dir, "visualizations")
 
     report_file = os.path.join(output_dir, f"{ticker}_financial_analysis_report.html")
 
-    # Get company info
     company_info = data.get("company_info", {})
 
     # Try to load financial ratios from saved file if not in analysis_data
@@ -425,11 +451,13 @@ def generate_report(
             viz_dir, f"{ticker}_sensitivity_heatmap.png"
         )
         equilibrium_plot_path = os.path.join(viz_dir, f"{ticker}_equilibrium_plot.png")
+        rev_term_growth_plot_path = os.path.join(viz_dir, f"{ticker}_rev_term_growth_equilibrium.png")
 
         has_financial_trends = os.path.exists(financial_trends_path)
         has_stock_performance = os.path.exists(stock_performance_path)
         has_sensitivity_heatmap = os.path.exists(sensitivity_heatmap_path)
         has_equilibrium_plot = os.path.exists(equilibrium_plot_path)
+        has_rev_term_growth_plot = os.path.exists(rev_term_growth_plot_path)
 
         # Create ratio HTML if we have ratios
         ratios_html = (
@@ -438,40 +466,22 @@ def generate_report(
             else "<p>No financial ratio data available</p>"
         )
 
-        # Prepare visualization HTML
-        financial_trends_html = (
-            '<div class="image-container"><h3>Financial Trends</h3><img src="visualizations/'
-            + ticker
-            + '_financial_trends.png" alt="Financial Trends" style="max-width:100%;"></div>'
-            if has_financial_trends
-            else "<p>Financial trends visualization not available</p>"
+        # Get visualization HTML using the templates module
+        visualization_html = get_visualization_html_templates(
+            ticker,
+            has_financial_trends,
+            has_stock_performance,
+            has_sensitivity_heatmap,
+            has_equilibrium_plot,
+            has_rev_term_growth_plot
         )
-        stock_performance_html = (
-            '<div class="image-container"><h3>Stock Performance Comparison</h3><img src="visualizations/'
-            + ticker
-            + '_stock_performance.png" alt="Stock Performance" style="max-width:100%;"></div>'
-            if has_stock_performance
-            else "<p>Stock performance comparison visualization not available</p>"
-        )
-        sensitivity_heatmap_html = (
-            '<div class="image-container"><h3>Sensitivity Analysis</h3><img src="visualizations/'
-            + ticker
-            + '_sensitivity_heatmap.png" alt="Sensitivity Analysis" style="max-width:100%;"></div>'
-            if has_sensitivity_heatmap
-            else "<p>Sensitivity analysis visualization not available</p>"
-        )
-        equilibrium_plot_html = (
-            '<div class="image-container"><h3>Discount Rate vs Terminal Growth Equilibrium</h3>'
-            "<p>This plot shows combinations of Discount Rate and Terminal Growth Rate that yield the current stock price, "
-            "with a regression line and the current discount rate.</p>"
-            '<img src="visualizations/'
-            + ticker
-            + '_equilibrium_plot.png" alt="Equilibrium Analysis" style="max-width:100%;"></div>'
-            if has_equilibrium_plot
-            else "<p>Discount rate vs terminal growth equilibrium visualization not available</p>"
-        )
+        
+        financial_trends_html = visualization_html['financial_trends_html']
+        stock_performance_html = visualization_html['stock_performance_html']
+        sensitivity_heatmap_html = visualization_html['sensitivity_heatmap_html']
+        equilibrium_plot_html = visualization_html['equilibrium_plot_html']
+        rev_term_growth_plot_html = visualization_html['rev_term_growth_plot_html']
 
-        # Get the HTML template
         template = get_report_template()
 
         # Prepare assumptions HTML if valuation results are available
@@ -535,6 +545,7 @@ def generate_report(
             stock_performance_html=stock_performance_html,
             sensitivity_heatmap_html=sensitivity_heatmap_html,
             equilibrium_plot_html=equilibrium_plot_html,
+            rev_term_growth_plot_html=rev_term_growth_plot_html,
             recommendation=recommendation,
             assumptions_html=assumptions_html,
         )

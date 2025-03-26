@@ -1010,8 +1010,9 @@ class DCFValuationModel:
         """
         Plot the combinations of Discount Rate and Terminal Growth Rate that yield the current stock price.
 
-        This function identifies points where the DCF model yields the current market price,
-        fits a regression line to these points, and highlights the current discount rate.
+        This function performs an exhaustive grid search to identify points where the DCF model yields 
+        the current market price, fits a regression line to these points, and visualizes the 
+        relationship between discount rate and terminal growth rate.
 
         Args:
             save_path (str, optional): Path to save the plot image. If None, the plot is shown instead of saved
@@ -1033,26 +1034,19 @@ class DCFValuationModel:
             # For testing compatibility - lazily import sklearn only if needed
             try:
                 from sklearn.linear_model import LinearRegression
-
                 use_sklearn = True
             except ImportError:
-                logger.warning(
-                    "sklearn not available, using numpy's polyfit for regression"
-                )
+                logger.warning("sklearn not available, using numpy's polyfit for regression")
                 use_sklearn = False
 
             # Check if we have necessary data
             if not self.company_info or "currentPrice" not in self.company_info:
-                logger.warning(
-                    "Current stock price not available, cannot create equilibrium plot"
-                )
+                logger.warning("Current stock price not available, cannot create equilibrium plot")
                 return None, None, None
 
             # Get current price
             current_price = self.company_info["currentPrice"]
-            logger.info(
-                f"Finding combinations that yield current price: ${current_price:.2f}"
-            )
+            logger.info(f"Finding combinations that yield current price: ${current_price:.2f}")
 
             # Get current/base discount rate
             if self.dynamic_discount_rate is not None:
@@ -1061,15 +1055,20 @@ class DCFValuationModel:
                 try:
                     current_discount_rate = self.calculate_current_discount_rate()
                 except Exception as e:
-                    logger.warning(
-                        f"Could not calculate dynamic discount rate: {str(e)}"
-                    )
+                    logger.warning(f"Could not calculate dynamic discount rate: {str(e)}")
                     current_discount_rate = self.valuation_parameters["discount_rate"]
+            
+            logger.info(f"Current discount rate: {current_discount_rate:.2%}")
 
-            # Define the range for both rates (0% to 20%)
-            # Avoid 0 for discount rate as it causes division by zero issues
-            discount_rates = np.linspace(0.02, 0.20, resolution)
-            growth_rates = np.linspace(0.0, 0.20, resolution)
+            # Define the range for both rates with increased granularity
+            # Discount rates from 2% to 20% as a contiguous range
+            num_points_disc = max(resolution * 2, 40)  # More points for smoother curve
+            discount_rates = np.linspace(0.02, 0.20, num_points_disc)
+            
+            # Terminal growth from 0% up to (but not exceeding) corresponding discount rate
+            num_points_term = max(resolution * 2, 40)  # More points for smoother curve
+            terminal_growth_max = current_discount_rate * 0.99  # Used for full grid visualization
+            growth_rates = np.linspace(0.0, terminal_growth_max, num_points_term)
 
             # For the test case, if we have only 3 points, use fixed values
             if resolution <= 3:
@@ -1078,12 +1077,20 @@ class DCFValuationModel:
 
             # Find combinations that yield current price (or close to it)
             equilibrium_points = []
-            tolerance = 0.02  # Accept values within 2% of current price
+            tolerance = 0.05  # Accept values within 5% of current price (increased from 2%)
+            
+            logger.info(f"Searching {len(discount_rates)}x{len(growth_rates)} grid points with {tolerance:.1%} tolerance")
+            logger.info(f"Discount rate range: {discount_rates[0]:.1%} to {discount_rates[-1]:.1%}")
+            logger.info(f"Terminal growth range: {growth_rates[0]:.1%} to {growth_rates[-1]:.1%}")
+            
+            # Track price ranges to help diagnose why some combinations might not be found
+            all_prices = []
 
+            # Perform exhaustive grid search
             for disc_rate in discount_rates:
                 for growth_rate in growth_rates:
                     # Ensure growth rate is less than discount rate to avoid terminal value issues
-                    if growth_rate >= disc_rate:
+                    if growth_rate >= disc_rate * 0.99:  # Keep a 1% safety margin
                         continue
 
                     # Set parameters for this combination
@@ -1092,58 +1099,54 @@ class DCFValuationModel:
 
                     try:
                         # Perform valuation with static parameters
-                        valuation = self.perform_dcf_valuation(
-                            use_current_discount_rate=False
-                        )
+                        valuation = self.perform_dcf_valuation(use_current_discount_rate=False)
 
                         if valuation and "per_share_value" in valuation:
                             model_price = valuation["per_share_value"]
+                            all_prices.append(model_price)
 
                             # If price is within tolerance of current price, it's an equilibrium point
-                            if (
-                                abs(model_price - current_price) / current_price
-                                <= tolerance
-                            ):
-                                equilibrium_points.append(
-                                    {
-                                        "discount_rate": disc_rate,
-                                        "terminal_growth": growth_rate,
-                                        "model_price": model_price,
-                                    }
-                                )
+                            price_diff = abs(model_price - current_price) / current_price
+                            if price_diff <= tolerance:
+                                equilibrium_points.append({
+                                    "discount_rate": disc_rate,
+                                    "terminal_growth": growth_rate,
+                                    "model_price": model_price,
+                                    "price_diff": price_diff
+                                })
                     except Exception as e:
-                        logger.debug(
-                            f"Valuation failed for discount_rate={disc_rate}, terminal_growth={growth_rate}: {str(e)}"
-                        )
+                        logger.debug(f"Valuation failed for discount_rate={disc_rate}, terminal_growth={growth_rate}: {str(e)}")
                         continue
+
+            # Log price range to help with diagnostics
+            if all_prices:
+                min_price = min(all_prices)
+                max_price = max(all_prices)
+                logger.info(f"All model prices range: ${min_price:.2f} to ${max_price:.2f}")
+                logger.info(f"Target price: ${current_price:.2f}")
 
             # Create DataFrame from equilibrium points
             eq_df = pd.DataFrame(equilibrium_points)
 
             # For test cases, if we couldn't find any equilibrium points, create dummy data
             if eq_df.empty and resolution <= 3:
-                logger.warning(
-                    "No equilibrium points found, creating dummy data for testing"
-                )
-                eq_df = pd.DataFrame(
-                    {
-                        "discount_rate": [0.08, 0.09, 0.10],
-                        "terminal_growth": [0.02, 0.03, 0.04],
-                        "model_price": [
-                            current_price * 0.98,
-                            current_price,
-                            current_price * 1.02,
-                        ],
-                    }
-                )
+                logger.warning("No equilibrium points found, creating dummy data for testing")
+                eq_df = pd.DataFrame({
+                    "discount_rate": [0.08, 0.09, 0.10],
+                    "terminal_growth": [0.02, 0.03, 0.04],
+                    "model_price": [current_price * 0.98, current_price, current_price * 1.02],
+                    "price_diff": [0.02, 0.00, 0.02]
+                })
             elif eq_df.empty:
-                logger.warning(
-                    "No equilibrium points found with the given resolution and tolerance"
-                )
+                logger.warning("No equilibrium points found with the given resolution and tolerance")
                 # Restore original parameters and return
                 self.growth_assumptions = original_growth
                 self.valuation_parameters = original_valuation
                 return None, eq_df, None
+                
+            logger.info(f"Found {len(eq_df)} equilibrium points within {tolerance:.1%} tolerance")
+            logger.info(f"Discount rate range in equilibrium points: {eq_df['discount_rate'].min():.2%} to {eq_df['discount_rate'].max():.2%}")
+            logger.info(f"Terminal growth range in equilibrium points: {eq_df['terminal_growth'].min():.2%} to {eq_df['terminal_growth'].max():.2%}")
 
             # Fit a regression line to the points
             X = eq_df[["discount_rate"]].values
@@ -1154,33 +1157,51 @@ class DCFValuationModel:
                 reg = LinearRegression().fit(X, y)
                 slope = reg.coef_[0]
                 intercept = reg.intercept_
+                # Calculate R² score for goodness of fit
+                from sklearn.metrics import r2_score
+                y_pred = reg.predict(X)
+                r2 = r2_score(y, y_pred)
+                logger.info(f"Linear regression: Terminal Growth = {slope:.4f} × Discount Rate + {intercept:.4f} (R² = {r2:.4f})")
             else:
                 # Fallback to numpy's polyfit
                 slope, intercept = np.polyfit(X.flatten(), y, 1)
+                # Calculate R² manually
+                y_pred = slope * X.flatten() + intercept
+                corr_matrix = np.corrcoef(y, y_pred)
+                r2 = corr_matrix[0, 1]**2
+                logger.info(f"Linear regression: Terminal Growth = {slope:.4f} × Discount Rate + {intercept:.4f} (R² = {r2:.4f})")
 
             # Calculate where current discount rate intersects the regression line
             intersection_growth = slope * current_discount_rate + intercept
+            logger.info(f"At current discount rate ({current_discount_rate:.2%}), regression predicts terminal growth of {intersection_growth:.2%}")
 
             # Create the plot
             fig, ax = plt.subplots(figsize=(10, 8))
 
-            # Plot the equilibrium points
-            ax.scatter(
+            # Plot the equilibrium points with color indicating model price
+            scatter = ax.scatter(
                 eq_df["discount_rate"],
                 eq_df["terminal_growth"],
-                color="blue",
-                alpha=0.6,
-                label="Equal to Current Price",
+                c=eq_df["model_price"],
+                cmap="viridis",
+                alpha=0.7,
+                s=50,
+                label="Equal to Current Price"
             )
+            
+            # Add a colorbar to show the model price
+            cbar = plt.colorbar(scatter)
+            cbar.set_label('Model Price ($)')
 
             # Plot the regression line
-            line_x = np.array([0, 0.20])
+            line_x = np.array([min(discount_rates), max(discount_rates)])
             line_y = slope * line_x + intercept
             ax.plot(
                 line_x,
                 line_y,
-                "g-",
-                label=f"Regression Line (y = {slope:.4f}x + {intercept:.4f})",
+                "r-",
+                linewidth=2,
+                label=f"Linear Fit (R² = {r2:.4f})"
             )
 
             # Plot vertical line for current discount rate
@@ -1191,36 +1212,49 @@ class DCFValuationModel:
                 label=f"Current Discount Rate ({current_discount_rate:.2%})",
             )
 
-            # Mark intersection point
-            if 0 <= intersection_growth <= 0.20:  # Only if within plot range
-                ax.plot(
-                    current_discount_rate,
-                    intersection_growth,
-                    "ro",
-                    markersize=8,
-                    label=f"Intersection Point ({intersection_growth:.2%})",
-                )
+            # Add the regression equation text to the plot in a white box
+            equation_text = f"Terminal Growth = {slope:.4f} × Discount Rate + {intercept:.4f}"
+            ax.text(0.05, 0.95, equation_text, transform=ax.transAxes,
+                   fontsize=10, verticalalignment='top', 
+                   bbox=dict(boxstyle='round', facecolor='white', alpha=0.7))
 
             # Set labels and title
-            ax.set_xlabel("Discount Rate (WACC)")
-            ax.set_ylabel("Terminal Growth Rate")
+            ax.set_xlabel("Discount Rate (WACC)", fontsize=12)
+            ax.set_ylabel("Terminal Growth Rate", fontsize=12)
+            
+            # Get the current revenue growth assumption
+            revenue_growth = self.growth_assumptions["revenue_growth"]
+            
             ax.set_title(
-                f"{self.ticker} - Discount Rate vs Terminal Growth Rate Equilibrium\n(Points yielding current price: ${current_price:.2f})"
+                f"{self.ticker} - Discount Rate vs Terminal Growth Equilibrium\n"
+                f"(Points yielding current price: ${current_price:.2f} at {revenue_growth:.1%} Revenue Growth)",
+                fontsize=14
             )
+            
+            # Add revenue growth assumption note to the plot
+            revenue_note = f"Revenue Growth Assumption: {revenue_growth:.1%}"
+            ax.text(0.05, 0.9, revenue_note, transform=ax.transAxes,
+                   fontsize=10, verticalalignment='top', 
+                   bbox=dict(boxstyle='round', facecolor='white', alpha=0.7))
 
             # Format the axes as percentages
             ax.xaxis.set_major_formatter(plt.FuncFormatter(lambda x, _: f"{x:.0%}"))
-            ax.yaxis.set_major_formatter(plt.FuncFormatter(lambda x, _: f"{x:.0%}"))
+            ax.yaxis.set_major_formatter(plt.FuncFormatter(lambda x, _: f"{x:.1%}"))
 
-            # Set axis limits explicitly
-            ax.set_xlim(0, 0.20)
-            ax.set_ylim(0, 0.20)
+            # Set axis limits with better range
+            x_min = max(0, min(eq_df["discount_rate"]) * 0.9)  # Give 10% padding
+            x_max = min(0.20, max(eq_df["discount_rate"]) * 1.1)  # Cap at 20%
+            ax.set_xlim(x_min, x_max)
+            
+            y_min = 0
+            y_max = min(0.15, max(eq_df["terminal_growth"]) * 1.2)  # Give 20% padding but cap at 15%
+            ax.set_ylim(y_min, y_max)
 
             # Add a grid for better readability
             ax.grid(True, alpha=0.3)
 
             # Add legend
-            ax.legend()
+            ax.legend(loc='lower right')
 
             # Save or display the plot
             if save_path:
@@ -1234,11 +1268,434 @@ class DCFValuationModel:
             self.valuation_parameters = original_valuation
 
             # Return figure for testing/further use, equilibrium points, and regression parameters
-            regression_params = {"slope": slope, "intercept": intercept}
+            regression_params = {"slope": slope, "intercept": intercept, "r2": r2}
             return fig, eq_df, regression_params
 
         except Exception as e:
             logger.error(f"Error plotting discount rate vs terminal growth: {str(e)}")
+            # Restore original parameters if exception occurs
+            self.growth_assumptions = original_growth
+            self.valuation_parameters = original_valuation
+            return None, None, None
+
+    def plot_revenue_terminal_growth_equilibrium(self, save_path=None, resolution=10):
+        """
+        Plot the combinations of Revenue Growth Rate and Terminal Growth Rate that yield 
+        the current stock price while holding discount rate (WACC) constant.
+
+        This function performs an exhaustive grid search to find all combinations that yield
+        a model price close to the current market price, fits a regression curve to these points,
+        and visualizes the trade-off between these two growth assumptions.
+
+        Args:
+            save_path (str, optional): Path to save the plot image. If None, the plot is shown instead of saved
+            resolution (int, optional): Number of points to sample for each axis (higher = more precise but slower)
+
+        Returns:
+            tuple: (figure, equilibrium_points, regression_params) - The matplotlib figure,
+                  dataframe of equilibrium points, and regression parameters (coefficients for best fit curve)
+        """
+        # Store original parameters to restore later
+        original_growth = self.growth_assumptions.copy()
+        original_valuation = self.valuation_parameters.copy()
+
+        try:
+            import matplotlib.pyplot as plt
+            import numpy as np
+            import pandas as pd
+            
+            # Check for sklearn availability
+            use_sklearn = False
+            try:
+                from sklearn.preprocessing import PolynomialFeatures
+                from sklearn.linear_model import LinearRegression
+                from sklearn.pipeline import make_pipeline
+                from sklearn.metrics import r2_score
+                use_sklearn = True
+            except ImportError:
+                logger.warning("scikit-learn not available, using numpy's polyfit for regression")
+
+            # Check if we have necessary data
+            if not self.company_info or "currentPrice" not in self.company_info:
+                logger.warning(
+                    "Current stock price not available, cannot create equilibrium plot"
+                )
+                return None, None, None
+
+            # Get current price
+            current_price = self.company_info["currentPrice"]
+            logger.info(
+                f"Finding Revenue Growth vs Terminal Growth combinations that yield current price: ${current_price:.2f}"
+            )
+
+            # Get current discount rate to keep constant
+            if self.dynamic_discount_rate is not None:
+                current_discount_rate = self.dynamic_discount_rate
+            else:
+                try:
+                    current_discount_rate = self.calculate_current_discount_rate()
+                except Exception as e:
+                    logger.warning(
+                        f"Could not calculate dynamic discount rate: {str(e)}"
+                    )
+                    current_discount_rate = self.valuation_parameters["discount_rate"]
+
+            # Set the discount rate to use for all calculations
+            self.valuation_parameters["discount_rate"] = current_discount_rate
+            logger.info(f"Using constant discount rate: {current_discount_rate:.2%}")
+
+            # Define the range for both growth rates - use more points for a contiguous range
+            # Revenue growth from 1% to 20% as a contiguous range
+            num_points_rev = max(resolution * 2, 60)  # More points for smoother curve
+            revenue_growth_rates = np.linspace(0.01, 0.20, num_points_rev)
+            
+            # Terminal growth from 0% up to (but not exceeding) discount rate
+            # Using 99% of WACC as upper limit without any hardcoded cap
+            num_points_term = max(resolution * 2, 60)  # More points for smoother curve
+            max_terminal_growth = current_discount_rate * 0.99  # 99% of WACC with no arbitrary cap
+            terminal_growth_rates = np.linspace(0.0, max_terminal_growth, num_points_term)
+
+            # Find combinations that yield current price (or close to it)
+            equilibrium_points = []
+            
+            # Use a more generous tolerance to find a sufficient number of equilibrium points
+            tolerance = 0.05  # 5% tolerance from current price (increased from 4%)
+            
+            # Log the search range and grid size
+            logger.info(f"Searching grid of {num_points_rev}x{num_points_term} points")
+            logger.info(f"Revenue growth range: {revenue_growth_rates[0]:.1%} to {revenue_growth_rates[-1]:.1%}")
+            logger.info(f"Terminal growth range: {terminal_growth_rates[0]:.1%} to {terminal_growth_rates[-1]:.1%}")
+            logger.info(f"Maximum terminal growth: {max_terminal_growth:.2%} (99% of WACC: {current_discount_rate:.2%})")
+            logger.info(f"Tolerance for matching current price: {tolerance:.1%}")
+            
+            # Create matrices to store all model prices and their differences for analysis
+            all_results = np.full((len(revenue_growth_rates), len(terminal_growth_rates)), np.nan)
+            
+            # Track lowest revenue growth that yields a valid model price
+            lowest_valid_rev_growth = 1.0
+            
+            # Exhaustive grid search through all combinations
+            for i, rev_growth in enumerate(revenue_growth_rates):
+                for j, term_growth in enumerate(terminal_growth_rates):
+                    # Skip invalid combinations (terminal > WACC)
+                    if term_growth >= current_discount_rate:
+                        continue
+                        
+                    # Set the growth assumptions for this iteration
+                    self.growth_assumptions["revenue_growth"] = rev_growth
+                    self.growth_assumptions["terminal_growth"] = term_growth
+                    
+                    try:
+                        # Perform DCF valuation with these growth rates
+                        results = self.perform_dcf_valuation(use_current_discount_rate=False)
+                        
+                        if results and "per_share_value" in results:
+                            model_price = results["per_share_value"]
+                            
+                            # Store all results for analysis regardless of match
+                            all_results[i, j] = model_price
+                            
+                            # Track lowest revenue growth that yields a price
+                            if rev_growth < lowest_valid_rev_growth:
+                                lowest_valid_rev_growth = rev_growth
+                            
+                            # Calculate percentage difference from current price
+                            price_diff = abs(model_price - current_price) / current_price
+                            
+                            # If within tolerance, add to equilibrium points
+                            if price_diff <= tolerance:
+                                equilibrium_points.append({
+                                    "revenue_growth": rev_growth,
+                                    "terminal_growth": term_growth,
+                                    "model_price": model_price,
+                                    "price_diff": price_diff
+                                })
+                                logger.debug(
+                                    f"Found equilibrium point: rev={rev_growth:.2%}, term={term_growth:.2%}, "
+                                    f"price=${model_price:.2f} (diff: {price_diff:.2%})"
+                                )
+                    except Exception as e:
+                        logger.debug(
+                            f"Valuation failed for revenue_growth={rev_growth}, terminal_growth={term_growth}: {str(e)}"
+                        )
+                        continue
+
+            # Create DataFrame from equilibrium points
+            eq_df = pd.DataFrame(equilibrium_points)
+
+            # Analysis of why we might not have equilibrium points at lower revenue growth rates
+            # Find where model prices are too low vs too high compared to current price
+            if not np.all(np.isnan(all_results)):
+                non_nan_mask = ~np.isnan(all_results)
+                if np.any(non_nan_mask):
+                    min_price = np.nanmin(all_results)
+                    max_price = np.nanmax(all_results)
+                    
+                    # Log range of model prices found in the grid search
+                    logger.info(f"Model price range: ${min_price:.2f} to ${max_price:.2f}, current price: ${current_price:.2f}")
+                    logger.info(f"Lowest revenue growth with valid model price: {lowest_valid_rev_growth:.2%}")
+                    
+                    # Check if any row has no prices within tolerance
+                    for i, rev_growth in enumerate(revenue_growth_rates):
+                        row = all_results[i, :]
+                        if not np.all(np.isnan(row)):
+                            min_row = np.nanmin(row)
+                            max_row = np.nanmax(row)
+                            if min_row > current_price * (1 + tolerance) or max_row < current_price * (1 - tolerance):
+                                logger.debug(f"Revenue growth {rev_growth:.2%}: all prices outside tolerance " +
+                                           f"(range: ${min_row:.2f} to ${max_row:.2f})")
+
+            # If we couldn't find any equilibrium points, simply return with empty DataFrame
+            if eq_df.empty:
+                logger.warning("No equilibrium points found with the given parameters")
+                # Restore original parameters and return
+                self.growth_assumptions = original_growth
+                self.valuation_parameters = original_valuation
+                return None, eq_df, None
+                
+            # Sort by price difference to prioritize closest matches
+            eq_df = eq_df.sort_values("price_diff")
+            
+            # Log the number of equilibrium points found
+            logger.info(f"Found {len(eq_df)} equilibrium points")
+
+            # Fit a regression curve to the points
+            X = eq_df[["revenue_growth"]].values
+            y = eq_df["terminal_growth"].values
+
+            # Default regression parameters
+            regression_params = {"degree": 1, "slope": 0, "intercept": 0}
+            best_model = None
+            best_r2 = -1
+            best_degree = 1
+            coeffs = None
+
+            # Try different polynomial degrees to find the best fit
+            max_degree = min(5, max(1, len(eq_df) // 5))  # Avoid overfitting with high degrees
+            
+            if use_sklearn:
+                # Try polynomial regression with different degrees
+                for degree in range(1, max_degree + 1):
+                    # Skip if we don't have enough points for this degree
+                    if len(eq_df) <= degree + 1:
+                        continue
+                        
+                    try:
+                        # Create and fit polynomial model
+                        model = make_pipeline(
+                            PolynomialFeatures(degree=degree),
+                            LinearRegression()
+                        )
+                        model.fit(X, y)
+                        
+                        # Calculate R² score
+                        y_pred = model.predict(X)
+                        r2 = r2_score(y, y_pred)
+                        
+                        # Keep track of the best model
+                        if r2 > best_r2:
+                            best_r2 = r2
+                            best_model = model
+                            best_degree = degree
+                            
+                            # Extract coefficients
+                            if degree == 1:
+                                # For linear model
+                                coef = model.named_steps["linearregression"].coef_[1]
+                                intercept = model.named_steps["linearregression"].intercept_
+                                regression_params = {
+                                    "degree": 1,
+                                    "slope": coef,
+                                    "intercept": intercept,
+                                    "r2": r2
+                                }
+                            else:
+                                # For polynomial models
+                                coefficients = model.named_steps["linearregression"].coef_
+                                intercept = model.named_steps["linearregression"].intercept_
+                                regression_params = {
+                                    "degree": degree,
+                                    "coefficients": coefficients[1:],  # Skip the first coefficient (constant term)
+                                    "intercept": intercept,
+                                    "r2": r2
+                                }
+                    except Exception as e:
+                        logger.warning(f"Error fitting polynomial degree {degree}: {str(e)}")
+            else:
+                # Use numpy's polynomial fitting
+                for degree in range(1, max_degree + 1):
+                    # Skip if we don't have enough points for this degree
+                    if len(eq_df) <= degree + 1:
+                        continue
+                        
+                    try:
+                        # Fit polynomial of specified degree
+                        coeffs = np.polyfit(
+                            eq_df["revenue_growth"].values, 
+                            eq_df["terminal_growth"].values, 
+                            degree
+                        )
+                        
+                        # Calculate predicted y values
+                        p = np.poly1d(coeffs)
+                        y_pred = p(eq_df["revenue_growth"].values)
+                        
+                        # Calculate R² score
+                        y_mean = np.mean(eq_df["terminal_growth"].values)
+                        ss_total = np.sum((eq_df["terminal_growth"].values - y_mean) ** 2)
+                        ss_residual = np.sum((eq_df["terminal_growth"].values - y_pred) ** 2)
+                        r2 = 1 - (ss_residual / ss_total)
+                        
+                        # Keep track of the best model
+                        if r2 > best_r2:
+                            best_r2 = r2
+                            best_degree = degree
+                            
+                            # Format coefficients for return value
+                            if degree == 1:
+                                regression_params = {
+                                    "degree": 1,
+                                    "slope": coeffs[0],
+                                    "intercept": coeffs[1],
+                                    "r2": r2
+                                }
+                            else:
+                                regression_params = {
+                                    "degree": degree,
+                                    "coefficients": coeffs[:-1],  # All but the last coefficient (which is the intercept)
+                                    "intercept": coeffs[-1],
+                                    "r2": r2
+                                }
+                    except Exception as e:
+                        logger.warning(f"Error fitting polynomial degree {degree}: {str(e)}")
+
+            # Create the plot
+            fig, ax = plt.subplots(figsize=(10, 8))
+            
+            # Plot equilibrium points with color indicating closeness to current price
+            scatter = ax.scatter(
+                eq_df["revenue_growth"],
+                eq_df["terminal_growth"],
+                c=eq_df["model_price"],
+                cmap="viridis",
+                alpha=0.7,
+                s=50,
+                label="Equal to Current Price"
+            )
+            
+            # Add a colorbar to show the model price differences
+            cbar = plt.colorbar(scatter)
+            cbar.set_label('Model Price ($)')
+
+            # Plot the regression curve
+            # Generate points for smooth curve
+            curve_x = np.linspace(
+                min(eq_df["revenue_growth"]), max(eq_df["revenue_growth"]), 100
+            )
+            
+            if use_sklearn and best_model is not None:
+                # For sklearn models
+                curve_x_2d = curve_x.reshape(-1, 1)  # Reshape for sklearn predict
+                curve_y = best_model.predict(curve_x_2d)
+            else:
+                # For numpy polynomial
+                curve_y = np.polyval(coeffs, curve_x)
+
+            # Format the label text based on degree
+            if regression_params["degree"] == 1:
+                slope = regression_params["slope"]
+                intercept = regression_params["intercept"]
+                label_text = f"Linear Fit (y = {slope:.4f}x + {intercept:.4f})"
+            elif regression_params["degree"] == 2:
+                if "coefficients" in regression_params:
+                    a, b = regression_params["coefficients"]
+                    c = regression_params.get("intercept", 0)
+                    label_text = f"Quadratic Fit (y = {a:.4f}x² + {b:.4f}x + {c:.4f})"
+                else:
+                    a, b, c = coeffs
+                    label_text = f"Quadratic Fit (y = {a:.4f}x² + {b:.4f}x + {c:.4f})"
+            else:
+                label_text = f"Polynomial Fit (degree={regression_params['degree']})"
+            
+            # Plot the regression curve
+            ax.plot(curve_x, curve_y, "r-", linewidth=2, label=label_text)
+
+            # Set labels and title
+            ax.set_xlabel("Revenue Growth Rate", fontsize=12)
+            ax.set_ylabel("Terminal Growth Rate", fontsize=12)
+            ax.set_title(
+                f"{self.ticker} - Revenue Growth vs Terminal Growth Rate Equilibrium\n"
+                f"(Points yielding current price: ${current_price:.2f}, WACC fixed at {current_discount_rate:.2%})",
+                fontsize=14
+            )
+
+            # Format the axes as percentages
+            ax.xaxis.set_major_formatter(plt.FuncFormatter(lambda x, _: f"{x:.0%}"))
+            ax.yaxis.set_major_formatter(plt.FuncFormatter(lambda x, _: f"{x:.1%}"))
+
+            # Set axis limits - extend terminal growth axis up to WACC
+            x_min = min(eq_df["revenue_growth"].min() * 0.9, 0.005)
+            x_max = max(eq_df["revenue_growth"].max() * 1.1, 0.10)
+            y_min = min(eq_df["terminal_growth"].min() * 0.9, 0)
+            # Extend y-axis up to discount rate (WACC)
+            y_max = current_discount_rate * 0.99  # 99% of WACC
+            
+            ax.set_xlim(x_min, x_max)
+            ax.set_ylim(y_min, y_max)
+            
+            # Add horizontal line at WACC to show the theoretical upper limit
+            ax.axhline(y=current_discount_rate, color='gray', linestyle='--', alpha=0.6, 
+                      label=f"WACC: {current_discount_rate:.2%}")
+
+            # Add a grid for better readability
+            ax.grid(True, alpha=0.3)
+            
+            # Add equation text on the plot
+            equation_text = ""
+            if regression_params["degree"] == 1:
+                slope = regression_params["slope"]
+                intercept = regression_params["intercept"]
+                equation_text = f"Terminal Growth = {slope:.4f} × Revenue Growth + {intercept:.4f}"
+            elif regression_params["degree"] == 2:
+                if "coefficients" in regression_params:
+                    a, b = regression_params["coefficients"]
+                    c = regression_params.get("intercept", 0)
+                    equation_text = f"Terminal Growth = {a:.4f}x² + {b:.4f}x + {c:.4f}"
+                else:
+                    a, b, c = coeffs
+                    equation_text = f"Quadratic Fit (y = {a:.4f}x² + {b:.4f}x + {c:.4f})"
+            elif regression_params["degree"] == 3:
+                if "coefficients" in regression_params:
+                    a, b, c = regression_params["coefficients"]
+                    d = regression_params.get("intercept", 0)
+                    equation_text = f"Terminal Growth = {a:.4f}x³ + {b:.4f}x² + {c:.4f}x + {d:.4f}"
+            
+            if equation_text:
+                # Position text in the upper left
+                ax.text(0.05, 0.95, equation_text, transform=ax.transAxes,
+                       fontsize=10, verticalalignment='top', 
+                       bbox=dict(boxstyle='round', facecolor='white', alpha=0.7))
+
+            # Add legend
+            ax.legend(loc='lower right')
+
+            # Save or display the plot
+            if save_path:
+                plt.tight_layout()
+                plt.savefig(save_path)
+                logger.info(f"Revenue-Terminal Growth Equilibrium plot saved to {save_path}")
+                plt.close(fig)
+            else:
+                plt.tight_layout()
+                
+            # Return from the try block with results
+            # Restore original parameters before returning
+            self.growth_assumptions = original_growth
+            self.valuation_parameters = original_valuation
+            return fig, eq_df, regression_params
+
+        except Exception as e:
+            logger.error(f"Error plotting revenue growth vs terminal growth: {str(e)}")
             # Restore original parameters if exception occurs
             self.growth_assumptions = original_growth
             self.valuation_parameters = original_valuation
