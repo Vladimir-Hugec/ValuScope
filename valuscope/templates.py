@@ -28,7 +28,34 @@ def get_report_template():
                 .recommendation {{ font-size: 24px; font-weight: bold; text-align: center; margin: 20px; }}
                 .acronym-explanation {{ margin-bottom: 10px; font-style: italic; color: #666; }}
                 .assumptions-box {{ margin-top: 10px; padding: 10px; background-color: #f5f5f5; border-radius: 5px; font-size: 0.9em; }}
+                
+                /* Tab styling */
+                .tabs {{ display: flex; margin: 20px 0 0 0; padding: 0; border-bottom: 1px solid #ccc; }}
+                .tab {{ padding: 10px 15px; cursor: pointer; margin-right: 2px; background-color: #f1f1f1; }}
+                .tab.active {{ background-color: #4CAF50; color: white; }}
+                .tab-content {{ display: none; padding: 15px 0; }}
+                .tab-content.active {{ display: block; }}
             </style>
+            <script>
+                function openTab(evt, tabName) {{
+                    var i, tabcontent, tablinks;
+                    tabcontent = document.getElementsByClassName("tab-content");
+                    for (i = 0; i < tabcontent.length; i++) {{
+                        tabcontent[i].style.display = "none";
+                    }}
+                    tablinks = document.getElementsByClassName("tab");
+                    for (i = 0; i < tablinks.length; i++) {{
+                        tablinks[i].className = tablinks[i].className.replace(" active", "");
+                    }}
+                    document.getElementById(tabName).style.display = "block";
+                    evt.currentTarget.className += " active";
+                }}
+                
+                // Default to open the first tab when the page loads
+                document.addEventListener('DOMContentLoaded', function() {{
+                    document.querySelector('.tab').click();
+                }});
+            </script>
         </head>
         <body>
             <div class="header">
@@ -36,66 +63,88 @@ def get_report_template():
                 <p>Generated on {generation_date}</p>
             </div>
             
-            <div class="section">
-                <h2>Company Overview</h2>
-                <p><strong>Ticker:</strong> {ticker}</p>
-                <p><strong>Industry:</strong> {industry}</p>
-                <p><strong>Sector:</strong> {sector}</p>
-                <p><strong>Market Cap:</strong> ${market_cap:,}</p>
-                <p><strong>Current Price:</strong> {current_price}</p>
+            <!-- Tab navigation -->
+            <div class="tabs">
+                <button class="tab active" onclick="openTab(event, 'summary')">Summary</button>
+                <button class="tab" onclick="openTab(event, 'dcf-valuation')">DCF Valuation</button>
             </div>
             
-            <div class="section">
-                <h2>Key Financial Metrics</h2>
-                <div class="metrics">
-                    <div class="metric-box">
-                        <h3>Revenue</h3>
-                        <p>{revenue}</p>
-                    </div>
-                    <div class="metric-box">
-                        <h3>Net Income</h3>
-                        <p>{net_income}</p>
-                    </div>
-                    <div class="metric-box">
-                        <h3>Target Price</h3>
-                        <p>{target_price}</p>
-                    </div>
-                    <div class="metric-box">
-                        <h3>Upside Potential</h3>
-                        <p>{upside}</p>
-                    </div>
+            <!-- Summary Tab -->
+            <div id="summary" class="tab-content active">
+                <div class="section">
+                    <h2>Company Overview</h2>
+                    <p><strong>Ticker:</strong> {ticker}</p>
+                    <p><strong>Industry:</strong> {industry}</p>
+                    <p><strong>Sector:</strong> {sector}</p>
+                    <p><strong>Market Cap:</strong> ${market_cap:,}</p>
+                    <p><strong>Current Price:</strong> {current_price}</p>
                 </div>
-                {assumptions_html}
-            </div>
-            
-            <div class="section">
-                <h3 class="mt-4">Financial Ratios</h3>
-                <div class="acronym-explanation">
-                    <strong>ROE</strong> - Return on Equity: Net Income / Total Equity<br>
-                    <strong>ROA</strong> - Return on Assets: Net Income / Total Assets<br>
-                    <strong>Profit Margin</strong> - Net Income / Total Revenue<br>
-                    <strong>Debt to Equity</strong> - Total Debt / Total Equity
+                
+                <div class="section">
+                    <h2>Key Financial Metrics</h2>
+                    <div class="metrics">
+                        <div class="metric-box">
+                            <h3>Revenue</h3>
+                            <p>{revenue}</p>
+                        </div>
+                        <div class="metric-box">
+                            <h3>Net Income</h3>
+                            <p>{net_income}</p>
+                        </div>
+                        <div class="metric-box">
+                            <h3>Fair Value (based on DCF valuation)</h3>
+                            <p>{target_price}</p>
+                        </div>
+                        <div class="metric-box">
+                            <h3>Upside Potential</h3>
+                            <p>{upside}</p>
+                        </div>
+                    </div>
+                    {assumptions_html}
                 </div>
-                {ratios_html}
-            </div>
-            
-            <div class="section">
-                <h2>Financial Visualizations</h2>
-                {financial_trends_html}
-                {stock_performance_html}
-                {sensitivity_heatmap_html}
-                {equilibrium_plot_html}
-                {rev_term_growth_plot_html}
-            </div>
-            
-            <div class="section">
-                <h2>Valuation Summary</h2>
-                <div class="recommendation">
-                    Investment Recommendation: {recommendation}
+                
+                <div class="section">
+                    <h2>Valuation Summary</h2>
+                    <div class="recommendation">
+                        Investment Recommendation: {recommendation}
+                    </div>
+                    <p><strong>Fair Value (based on DCF valuation):</strong> {target_price}</p>
+                    <p><strong>Current Price:</strong> {current_price}</p>
+                    <p><strong>Upside Potential:</strong> {upside}</p>
                 </div>
-                <p><strong>Target Price:</strong> {target_price}</p>
-                <p><strong>Current Price:</strong> {current_price}</p>
-                <p><strong>Upside Potential:</strong> {upside}</p>
+                
+                <div class="section">
+                    <h2>Financial Trends</h2>
+                    {financial_trends_html}
+                    {stock_performance_html}
+                </div>
+                
+                <div class="section">
+                    <h2>Financial Ratios</h2>
+                    <div class="acronym-explanation">
+                        <strong>ROE</strong> - Return on Equity: Net Income / Total Equity<br>
+                        <strong>ROA</strong> - Return on Assets: Net Income / Total Assets<br>
+                        <strong>Profit Margin</strong> - Net Income / Total Revenue<br>
+                        <strong>Debt to Equity</strong> - Total Debt / Total Equity
+                    </div>
+                    {ratios_html}
+                </div>
+            </div>
+            
+            <!-- DCF Valuation Tab -->
+            <div id="dcf-valuation" class="tab-content">
+                <div class="section">
+                    <h2>Sensitivity Analysis</h2>
+                    <p>This heatmap shows how changes in Discount Rate (WACC) and Terminal Growth Rate affect the calculated share price.</p>
+                    {sensitivity_heatmap_html}
+                </div>
+                
+                <div class="section">
+                    <h2>Equilibrium Analysis</h2>
+                    <p>These visualizations show combinations of growth rates that yield the current market price.</p>
+                    {equilibrium_plot_html}
+                    {rev_term_growth_plot_html}
+                </div>
             </div>
             
             <div class="section">
