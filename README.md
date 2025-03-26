@@ -78,24 +78,14 @@ valuscope/                  # Main package directory
    pip install -e .
    ```
 
-### Option 2: Normal Installation
-
-```
-pip install valuscope
-```
-
 ## Usage
 
 ### Command Line Interface
 
 After installation, you can use the package from the command line:
 
-```bash
-# Using the console script
-valuscope AAPL --output output_folder
-
-# Or as a Python module
-python -m valuscope AAPL --output output_folder
+# As a Python module
+python -m valuscope {TICKER}
 ```
 
 This will:
