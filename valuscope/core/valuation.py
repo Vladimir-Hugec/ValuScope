@@ -27,12 +27,12 @@ class DCFValuationModel:
         self.company_info = {}
         self.growth_assumptions = {
             "revenue_growth": 0.05,  # 5% annual growth
-            "terminal_growth": 0.025,  # 2.5% terminal growth
+            "terminal_growth": 0.035,  # 3.5% terminal growth
             "margin_improvement": 0.002,  # 0.2% annual margin improvement
         }
         self.valuation_parameters = {
             "discount_rate": 0.09,  # 9% discount rate (WACC)
-            "projection_years": 5,  # 5-year projection
+            "projection_years": 10,  # 10-year projection
             "terminal_multiple": 15,  # Terminal EV/EBITDA multiple
         }
         self.dynamic_discount_rate = None  # Store the calculated dynamic discount rate

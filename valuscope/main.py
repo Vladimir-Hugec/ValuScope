@@ -586,8 +586,8 @@ def main():
     parser.add_argument(
         "--terminal-growth",
         type=float,
-        default=0.025,
-        help="Terminal growth rate assumption (default: 0.025)",
+        default=0.035,
+        help="Terminal growth rate assumption (default: 0.035)",
     )
     parser.add_argument(
         "--discount-rate",
