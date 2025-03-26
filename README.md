@@ -246,7 +246,7 @@ The end-to-end analysis generates the following outputs in an organized folder s
 
 Below is an example of what the generated financial analysis report looks like:
 
-![Financial Analysis Report](https://github.com/Vladimir-Hugec/ValuScope/raw/docs/reports/AAPL_Financial_Analysis_Report.pdf)
+![Financial Analysis Report](https://github.com/Vladimir-Hugec/ValuScope/blob/main/raw/docs/reports/AAPL_Financial_Analysis_Report.png)
 
 ## Development
 
