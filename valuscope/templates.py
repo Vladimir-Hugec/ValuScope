@@ -85,6 +85,7 @@ def get_report_template():
                 {stock_performance_html}
                 {sensitivity_heatmap_html}
                 {equilibrium_plot_html}
+                {rev_term_growth_plot_html}
             </div>
             
             <div class="section">
@@ -121,3 +122,72 @@ def get_assumptions_html_template():
         </p>
     </div>
     """
+
+
+def get_visualization_html_templates(ticker, has_financial_trends, has_stock_performance, 
+                                    has_sensitivity_heatmap, has_equilibrium_plot, has_rev_term_growth_plot=False):
+    """
+    Returns HTML for visualization elements.
+    
+    Args:
+        ticker (str): The stock ticker symbol
+        has_financial_trends (bool): Whether financial trends visualization exists
+        has_stock_performance (bool): Whether stock performance visualization exists
+        has_sensitivity_heatmap (bool): Whether sensitivity heatmap visualization exists
+        has_equilibrium_plot (bool): Whether equilibrium plot visualization exists
+        has_rev_term_growth_plot (bool): Whether revenue-terminal growth equilibrium plot exists
+    
+    Returns:
+        dict: Dictionary containing HTML for each visualization type
+    """
+    financial_trends_html = (
+        '<div class="image-container"><h3>Financial Trends</h3>'
+        f'<img src="visualizations/{ticker}_financial_trends.png" alt="Financial Trends" style="max-width:100%;">'
+        '</div>'
+        if has_financial_trends
+        else "<p>Financial trends visualization not available</p>"
+    )
+    
+    stock_performance_html = (
+        '<div class="image-container"><h3>Stock Performance Comparison</h3>'
+        f'<img src="visualizations/{ticker}_stock_performance.png" alt="Stock Performance" style="max-width:100%;">'
+        '</div>'
+        if has_stock_performance
+        else "<p>Stock performance comparison visualization not available</p>"
+    )
+    
+    sensitivity_heatmap_html = (
+        '<div class="image-container"><h3>Sensitivity Analysis</h3>'
+        f'<img src="visualizations/{ticker}_sensitivity_heatmap.png" alt="Sensitivity Analysis" style="max-width:100%;">'
+        '</div>'
+        if has_sensitivity_heatmap
+        else "<p>Sensitivity analysis visualization not available</p>"
+    )
+    
+    equilibrium_plot_html = (
+        '<div class="image-container"><h3>Discount Rate vs Terminal Growth Equilibrium</h3>'
+        '<p>This plot shows combinations of Discount Rate and Terminal Growth Rate that yield the current stock price '
+        'while holding revenue growth constant, with a regression line showing the relationship and the current discount rate marked.</p>'
+        f'<img src="visualizations/{ticker}_equilibrium_plot.png" alt="Equilibrium Analysis" style="max-width:100%;">'
+        '</div>'
+        if has_equilibrium_plot
+        else "<p>Discount rate vs terminal growth equilibrium visualization not available</p>"
+    )
+    
+    rev_term_growth_plot_html = (
+        '<div class="image-container"><h3>Revenue Growth vs Terminal Growth Equilibrium</h3>'
+        '<p>This plot shows combinations of Revenue Growth Rate and Terminal Growth Rate that yield the current stock price '
+        'while holding the discount rate (WACC) constant, with a regression curve showing the relationship.</p>'
+        f'<img src="visualizations/{ticker}_rev_term_growth_equilibrium.png" alt="Revenue-Terminal Growth Equilibrium" style="max-width:100%;">'
+        '</div>'
+        if has_rev_term_growth_plot
+        else "<p>Revenue growth vs terminal growth equilibrium visualization not available</p>"
+    )
+    
+    return {
+        'financial_trends_html': financial_trends_html,
+        'stock_performance_html': stock_performance_html,
+        'sensitivity_heatmap_html': sensitivity_heatmap_html,
+        'equilibrium_plot_html': equilibrium_plot_html,
+        'rev_term_growth_plot_html': rev_term_growth_plot_html
+    }

@@ -659,6 +659,91 @@ class TestDCFValuationModel(unittest.TestCase):
             self.assertEqual(self.model.growth_assumptions["terminal_growth"], 0.025)
             self.assertEqual(self.model.valuation_parameters["discount_rate"], 0.09)
 
+    def test_revenue_terminal_growth_equilibrium_plot(self):
+        """Test that the revenue and terminal growth equilibrium plot function works correctly."""
+        # Skip if sklearn is not available
+        try:
+            import sklearn
+        except ImportError:
+            self.skipTest("sklearn not available")
+        
+        # Create a temporary directory and file for the plot
+        with tempfile.TemporaryDirectory() as temp_dir:
+            plot_path = os.path.join(temp_dir, f"{self.ticker}_revenue_terminal_growth_plot.png")
+
+            # Run with very low resolution for faster testing
+            fig, eq_df, reg_params = self.model.plot_revenue_terminal_growth_equilibrium(
+                save_path=plot_path, resolution=3
+            )
+
+            # For tests, we might not get a plot if matplotlib is in non-interactive mode
+            # So check the data structures instead
+            self.assertIsNotNone(eq_df)
+            self.assertFalse(eq_df.empty)
+            
+            # Check that the DataFrame contains the expected columns
+            self.assertIn("revenue_growth", eq_df.columns)
+            self.assertIn("terminal_growth", eq_df.columns)
+            self.assertIn("model_price", eq_df.columns)
+
+            # Check that regression parameters were calculated
+            self.assertIsNotNone(reg_params)
+            self.assertIn("degree", reg_params)  # Should contain the polynomial degree
+            
+            # Check that the regression parameters contain expected fields
+            if reg_params["degree"] == 1:
+                # Linear model has slope and intercept
+                self.assertIn("slope", reg_params)
+                self.assertIn("intercept", reg_params)
+            else:
+                # Higher degree models have coefficients
+                self.assertIn("coefficients", reg_params)
+
+            # Check that the plot has the expected format
+            self.assertIsNotNone(fig)
+
+            # Make sure original parameters were restored
+            self.assertEqual(self.model.growth_assumptions["revenue_growth"], 0.05)
+            self.assertEqual(self.model.growth_assumptions["terminal_growth"], 0.025)
+            self.assertEqual(self.model.valuation_parameters["discount_rate"], 0.09)
+            
+    def test_revenue_terminal_growth_equilibrium_error_handling(self):
+        """Test that the revenue and terminal growth equilibrium plot handles errors gracefully."""
+        # Skip if sklearn is not available
+        try:
+            import sklearn
+        except ImportError:
+            self.skipTest("sklearn not available")
+            
+        # Test with missing company info
+        original_info = self.model.company_info
+        self.model.company_info = {}  # Empty company info
+        
+        fig, eq_df, reg_params = self.model.plot_revenue_terminal_growth_equilibrium(resolution=3)
+        
+        # Should return None for all values when company info is missing
+        self.assertIsNone(fig)
+        self.assertIsNone(reg_params)
+        
+        # Restore original company info
+        self.model.company_info = original_info
+        
+        # Test with mocked model to ensure parameters are restored even when exception occurs
+        original_growth = self.model.growth_assumptions.copy()
+        original_valuation = self.model.valuation_parameters.copy()
+        
+        # Create a patched version that raises an exception but contains dummy data method
+        with patch.object(DCFValuationModel, 'perform_dcf_valuation') as mock_method:
+            # Set up the mock to always return a dummy valuation
+            mock_method.side_effect = Exception("Valuation error")
+            
+            # This should now always fail but restore parameters
+            self.model.plot_revenue_terminal_growth_equilibrium(resolution=3)
+            
+            # Parameters should be restored
+            self.assertEqual(self.model.growth_assumptions, original_growth)
+            self.assertEqual(self.model.valuation_parameters, original_valuation)
+
 
 if __name__ == "__main__":
     unittest.main()
