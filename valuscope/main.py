@@ -275,6 +275,38 @@ def run_dcf_valuation(
                 )
         except (ImportError, ValueError, TypeError) as e:
             logger.warning(f"Could not create sensitivity heatmap: {str(e)}")
+
+        # Create the equilibrium plot showing Terminal Growth Rate vs Discount Rate pairs
+        # that yield the current stock price
+        try:
+            logger.info("Generating equilibrium plot...")
+            equilibrium_plot = os.path.join(viz_dir, f"{ticker}_equilibrium_plot.png")
+
+            # Create the equilibrium plot with a resolution of 15 points for each axis
+            # This gives a good balance between precision and calculation time
+            _, eq_df, reg_params = model.plot_discount_growth_equilibrium(
+                save_path=equilibrium_plot, resolution=15
+            )
+
+            if eq_df is not None and not eq_df.empty:
+                # Save equilibrium points to CSV
+                eq_points_file = os.path.join(
+                    csv_dir, f"{ticker}_equilibrium_points.csv"
+                )
+                eq_df.to_csv(eq_points_file)
+                logger.info(f"Equilibrium points saved to {eq_points_file}")
+
+                logger.info(f"Equilibrium plot saved to {equilibrium_plot}")
+                logger.info(
+                    f"Regression equation: Terminal Growth = {reg_params['slope']:.4f} × Discount Rate + {reg_params['intercept']:.4f}"
+                )
+            else:
+                logger.warning(
+                    "Could not generate equilibrium plot: no equilibrium points found"
+                )
+
+        except (ImportError, ValueError, TypeError) as e:
+            logger.warning(f"Could not create equilibrium plot: {str(e)}")
     else:
         logger.warning("DCF valuation could not be completed")
 
@@ -392,10 +424,12 @@ def generate_report(
         sensitivity_heatmap_path = os.path.join(
             viz_dir, f"{ticker}_sensitivity_heatmap.png"
         )
+        equilibrium_plot_path = os.path.join(viz_dir, f"{ticker}_equilibrium_plot.png")
 
         has_financial_trends = os.path.exists(financial_trends_path)
         has_stock_performance = os.path.exists(stock_performance_path)
         has_sensitivity_heatmap = os.path.exists(sensitivity_heatmap_path)
+        has_equilibrium_plot = os.path.exists(equilibrium_plot_path)
 
         # Create ratio HTML if we have ratios
         ratios_html = (
@@ -425,6 +459,16 @@ def generate_report(
             + '_sensitivity_heatmap.png" alt="Sensitivity Analysis" style="max-width:100%;"></div>'
             if has_sensitivity_heatmap
             else "<p>Sensitivity analysis visualization not available</p>"
+        )
+        equilibrium_plot_html = (
+            '<div class="image-container"><h3>Discount Rate vs Terminal Growth Equilibrium</h3>'
+            "<p>This plot shows combinations of Discount Rate and Terminal Growth Rate that yield the current stock price, "
+            "with a regression line and the current discount rate.</p>"
+            '<img src="visualizations/'
+            + ticker
+            + '_equilibrium_plot.png" alt="Equilibrium Analysis" style="max-width:100%;"></div>'
+            if has_equilibrium_plot
+            else "<p>Discount rate vs terminal growth equilibrium visualization not available</p>"
         )
 
         # Get the HTML template
@@ -490,6 +534,7 @@ def generate_report(
             financial_trends_html=financial_trends_html,
             stock_performance_html=stock_performance_html,
             sensitivity_heatmap_html=sensitivity_heatmap_html,
+            equilibrium_plot_html=equilibrium_plot_html,
             recommendation=recommendation,
             assumptions_html=assumptions_html,
         )

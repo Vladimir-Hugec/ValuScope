@@ -84,6 +84,7 @@ def get_report_template():
                 {financial_trends_html}
                 {stock_performance_html}
                 {sensitivity_heatmap_html}
+                {equilibrium_plot_html}
             </div>
             
             <div class="section">

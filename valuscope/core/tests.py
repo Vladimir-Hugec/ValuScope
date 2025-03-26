@@ -7,6 +7,10 @@ import os
 import logging
 from valuscope.core.data_fetcher import YahooFinanceFetcher
 from valuscope.core.valuation import DCFValuationModel
+import tempfile
+import shutil
+from valuscope.main import run_dcf_valuation, generate_report
+import re
 
 # Disable logging during tests
 logging.disable(logging.CRITICAL)
@@ -624,6 +628,36 @@ class TestDCFValuationModel(unittest.TestCase):
             except Exception as e:
                 # If an exception is raised, we just verify it's the one we expect
                 self.assertIn("market data", str(e))
+
+    def test_equilibrium_plot_functionality(self):
+        """Test that the equilibrium plot function creates the correct plot with regression analysis."""
+        # Create a temporary directory and file for the plot
+        with tempfile.TemporaryDirectory() as temp_dir:
+            plot_path = os.path.join(temp_dir, f"{self.ticker}_equilibrium_plot.png")
+
+            # Run with very low resolution for faster testing
+            fig, eq_df, reg_params = self.model.plot_discount_growth_equilibrium(
+                save_path=plot_path, resolution=3
+            )
+
+            # Check that the plot was created
+            self.assertTrue(os.path.exists(plot_path))
+
+            # Check that regression parameters were calculated
+            self.assertIsNotNone(reg_params)
+            self.assertIn("slope", reg_params)
+            self.assertIn("intercept", reg_params)
+
+            # Check that equilibrium points were found
+            self.assertIsNotNone(eq_df)
+            self.assertFalse(eq_df.empty)
+
+            # Check that the plot has the expected format
+            self.assertIsNotNone(fig)
+
+            # Make sure original parameters were restored
+            self.assertEqual(self.model.growth_assumptions["terminal_growth"], 0.025)
+            self.assertEqual(self.model.valuation_parameters["discount_rate"], 0.09)
 
 
 if __name__ == "__main__":
