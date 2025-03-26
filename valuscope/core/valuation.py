@@ -221,12 +221,54 @@ class DCFValuationModel:
         """
         Get the current risk-free rate from the 10-year Treasury yield.
 
+        Uses yfinance to fetch the latest 10-year Treasury yield (^TNX ticker).
+        Includes fallback mechanisms in case the API request fails.
+
         Returns:
             float: Current risk-free rate as decimal
         """
         try:
-            # Try to fetch from U.S. Treasury website or financial API
-            # For demonstration, we'll use a simple API request
+            logger.info("Fetching current 10-year Treasury yield data")
+
+            # Import yfinance here to avoid making it a hard dependency for the entire module
+            import yfinance as yf
+
+            # ^TNX is the ticker symbol for the 10-year Treasury yield
+            tnx = yf.Ticker("^TNX")
+
+            # Get the most recent data (last day's closing value)
+            hist = tnx.history(period="1d")
+
+            if not hist.empty:
+                # Get the most recent closing price (yield)
+                # Treasury yields are quoted in percentage terms, so convert to decimal
+                current_yield = hist["Close"].iloc[-1] / 100.0
+                logger.info(
+                    f"Current 10-year Treasury yield: {current_yield:.4f} ({current_yield:.2%})"
+                )
+                return current_yield
+
+            # If we couldn't get data from yfinance, try alternative method
+            logger.warning(
+                "Could not fetch current yield from yfinance, trying alternative source"
+            )
+            return self._get_risk_free_rate_fallback()
+
+        except Exception as e:
+            logger.error(f"Error fetching current risk-free rate: {str(e)}")
+            return self._get_risk_free_rate_fallback()
+
+    def _get_risk_free_rate_fallback(self):
+        """
+        Fallback method to get an estimate of the current risk-free rate.
+
+        Returns:
+            float: Estimated risk-free rate as decimal
+        """
+        try:
+            # Try to fetch from U.S. Treasury API
+            import requests
+
             url = "https://api.fiscaldata.treasury.gov/services/api/fiscal_service/v2/accounting/od/avg_interest_rates"
             params = {
                 "filter": "security_desc:eq:Treasury Bonds",
@@ -234,26 +276,33 @@ class DCFValuationModel:
                 "limit": 1,
             }
 
-            try:
-                response = requests.get(url, params=params)
-                if response.status_code == 200:
-                    data = response.json()
-                    if "data" in data and len(data["data"]) > 0:
-                        # Convert percent to decimal
-                        rate = float(data["data"][0]["avg_interest_rate_amt"]) / 100
-                        return rate
-            except:
-                # If Treasury API fails, try an alternative method
-                pass
+            response = requests.get(url, params=params)
+            if response.status_code == 200:
+                data = response.json()
+                if "data" in data and len(data["data"]) > 0:
+                    # Convert percent to decimal
+                    rate = float(data["data"][0]["avg_interest_rate_amt"]) / 100
+                    logger.info(
+                        f"Using Treasury API fallback rate: {rate:.4f} ({rate:.2%})"
+                    )
+                    return rate
 
-            # If the above fails, we can try alternative methods:
-            # 1. Fixed hard-coded current value (less ideal but works as fallback)
-            current_10yr_treasury = 0.0416  # 4.16% as of latest data
-            return current_10yr_treasury
+            # If the API call fails, use a recent but hardcoded value as last resort
+            # Based on recent market data
+            fallback_rate = 0.0429  # 4.29% as of March 2025
+            logger.warning(
+                f"Using hardcoded fallback rate: {fallback_rate:.4f} ({fallback_rate:.2%})"
+            )
+            return fallback_rate
 
         except Exception as e:
-            logger.error(f"Error fetching current risk-free rate: {str(e)}")
-            return None
+            logger.error(f"Error in risk-free rate fallback: {str(e)}")
+            # If all else fails, use a standard value
+            default_rate = 0.04  # 4.0%
+            logger.warning(
+                f"Using default rate: {default_rate:.4f} ({default_rate:.2%})"
+            )
+            return default_rate
 
     def _extract_historical_financials(self):
         """

@@ -242,6 +242,140 @@ The end-to-end analysis generates the following outputs in an organized folder s
 4. **Logs Subfolder**:
    - Analysis log file with detailed execution information
 
+## Sample Report
+
+Below is an example of what the generated financial analysis report looks like:
+
+<details>
+<summary>Click to see a sample report</summary>
+
+```html
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>AAPL Financial Analysis Report</title>
+    <style>
+      body {
+        font-family: Arial, sans-serif;
+        margin: 20px;
+      }
+      .header {
+        background-color: #4caf50;
+        color: white;
+        padding: 20px;
+        text-align: center;
+      }
+      .section {
+        margin-top: 20px;
+        margin-bottom: 20px;
+        padding: 15px;
+        border: 1px solid #ddd;
+      }
+      .metrics {
+        display: flex;
+        flex-wrap: wrap;
+      }
+      .metric-box {
+        background-color: #f9f9f9;
+        margin: 10px;
+        padding: 15px;
+        width: 200px;
+        border-radius: 5px;
+        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+      }
+      table {
+        border-collapse: collapse;
+        width: 100%;
+      }
+      th,
+      td {
+        padding: 8px;
+        text-align: left;
+        border-bottom: 1px solid #ddd;
+      }
+      th {
+        background-color: #f2f2f2;
+      }
+      .image-container {
+        margin: 20px 0;
+      }
+      .recommendation {
+        font-size: 24px;
+        font-weight: bold;
+        text-align: center;
+        margin: 20px;
+      }
+      .acronym-explanation {
+        margin-bottom: 10px;
+        font-style: italic;
+        color: #666;
+      }
+      .assumptions-box {
+        margin-top: 10px;
+        padding: 10px;
+        background-color: #f5f5f5;
+        border-radius: 5px;
+        font-size: 0.9em;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="header">
+      <h1>Apple Inc. Financial Analysis Report</h1>
+      <p>Generated on 2025-03-25 19:58:24</p>
+    </div>
+
+    <div class="section">
+      <h2>Company Overview</h2>
+      <p><strong>Ticker:</strong> AAPL</p>
+      <p><strong>Industry:</strong> Consumer Electronics</p>
+      <p><strong>Sector:</strong> Technology</p>
+      <p><strong>Market Cap:</strong> $3,361,194,901,504</p>
+      <p><strong>Current Price:</strong> $223.75</p>
+    </div>
+
+    <div class="section">
+      <h2>Key Financial Metrics</h2>
+      <div class="metrics">
+        <div class="metric-box">
+          <h3>Revenue</h3>
+          <p>$391,035,000,000.00</p>
+        </div>
+        <div class="metric-box">
+          <h3>Net Income</h3>
+          <p>$93,736,000,000.00</p>
+        </div>
+        <div class="metric-box">
+          <h3>Target Price</h3>
+          <p>$116.51</p>
+        </div>
+        <div class="metric-box">
+          <h3>Upside Potential</h3>
+          <p>-47.93%</p>
+        </div>
+      </div>
+      <div class="assumptions-box">
+        <p>
+          <strong>DCF Valuation Assumptions:</strong><br />
+          Revenue Growth: 5.00% | Terminal Growth: 2.50% | Discount Rate (WACC):
+          10.61% | Risk-Free Rate: 4.31%
+        </p>
+      </div>
+    </div>
+
+    <!-- Additional sections omitted for brevity -->
+  </body>
+</html>
+```
+
+### Report Screenshots
+
+The report includes comprehensive visualizations like sensitivity analysis heatmaps showing how the target price changes with different discount rates and terminal growth rates:
+
+![Sensitivity Analysis](https://github.com/Vladimir-Hugec/ValuScope/raw/docs/images/sample_sensitivity_heatmap.png)
+
+</details>
+
 ## Development
 
 ### Running Tests
